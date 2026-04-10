@@ -12,6 +12,7 @@ import type {
   TemplateEntry,
   CreateEntryRequest,
   CopyTemplateRequest,
+  RenameEntryRequest,
   ApiError,
 } from '@/types';
 
@@ -109,6 +110,21 @@ export async function deleteEntry(relativePath: string): Promise<void> {
   const url = `/api/files/${encodeSegments(relativePath)}`;
   const res = await fetch(url, { method: 'DELETE' });
   await parseJsonOrThrow<{ ok: true }>(res);
+}
+
+export async function renameEntry(
+  relativePath: string,
+  destinationPath: string,
+): Promise<string> {
+  const url = `/api/files/${encodeSegments(relativePath)}`;
+  const body: RenameEntryRequest = { destinationPath };
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const parsed = await parseJsonOrThrow<{ ok: true; path: string }>(res);
+  return parsed.path;
 }
 
 // ---------- templates ----------

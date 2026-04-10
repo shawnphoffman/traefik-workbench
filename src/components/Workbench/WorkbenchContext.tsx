@@ -34,6 +34,7 @@ import {
   deleteEntry,
   fetchFile,
   fetchTree,
+  renameEntry,
   saveFile,
 } from '@/lib/api-client';
 import type { CopyTemplateRequest, TreeEntry } from '@/types';
@@ -101,6 +102,13 @@ interface WorkbenchState {
   createFile: (path: string, content?: string) => Promise<void>;
   createDirectory: (path: string) => Promise<void>;
   deletePath: (path: string) => Promise<void>;
+  /**
+   * Rename (move) a file or directory. Any open tabs whose path is the
+   * renamed entry — or lives inside a renamed directory — are remapped
+   * to the new path so the user's edits stay attached to the right
+   * buffer.
+   */
+  renamePath: (sourcePath: string, destinationPath: string) => Promise<void>;
   copyTemplateToData: (body: CopyTemplateRequest) => Promise<void>;
 
   // Editor integration
@@ -532,6 +540,37 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     [reloadTree, activePath],
   );
 
+  const renamePath = useCallback(
+    async (sourcePath: string, destinationPath: string) => {
+      if (sourcePath === destinationPath) return;
+      await renameEntry(sourcePath, destinationPath);
+
+      // Remap any open tabs that lived at (or under) the renamed path.
+      const srcPrefix = sourcePath.endsWith('/')
+        ? sourcePath
+        : `${sourcePath}/`;
+      const dstPrefix = destinationPath.endsWith('/')
+        ? destinationPath
+        : `${destinationPath}/`;
+      const remap = (p: string): string | null => {
+        if (p === sourcePath) return destinationPath;
+        if (p.startsWith(srcPrefix)) return dstPrefix + p.slice(srcPrefix.length);
+        return null;
+      };
+
+      setOpenFiles((prev) =>
+        prev.map((f) => {
+          const next = remap(f.path);
+          return next == null ? f : { ...f, path: next };
+        }),
+      );
+      setActivePath((prev) => (prev == null ? prev : (remap(prev) ?? prev)));
+
+      await reloadTree();
+    },
+    [reloadTree],
+  );
+
   const copyTemplateToData = useCallback(
     async (body: CopyTemplateRequest) => {
       await copyTemplate(body);
@@ -591,6 +630,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       createFile,
       createDirectory,
       deletePath,
+      renamePath,
       copyTemplateToData,
       registerEditor,
       scrollToLine,
@@ -626,6 +666,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       createFile,
       createDirectory,
       deletePath,
+      renamePath,
       copyTemplateToData,
       registerEditor,
       scrollToLine,

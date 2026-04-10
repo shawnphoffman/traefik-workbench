@@ -13,6 +13,7 @@ import {
   listDirectoryTree,
   listTemplateFiles,
   copyFile,
+  renameEntry,
   FsError,
 } from './fs';
 
@@ -258,6 +259,72 @@ describe('copyFile', () => {
     await expect(
       copyFile(path.join(root, 'missing.yml'), path.join(root, 'dst.yml')),
     ).rejects.toEqual(expect.objectContaining({ code: 'NOT_FOUND' }));
+  });
+});
+
+describe('renameEntry', () => {
+  it('renames a file in place', async () => {
+    const src = path.join(root, 'old.yml');
+    const dst = path.join(root, 'new.yml');
+    await fsp.writeFile(src, 'hello');
+    await renameEntry(src, dst);
+    expect(await fsp.readFile(dst, 'utf8')).toBe('hello');
+    await expect(fsp.stat(src)).rejects.toThrow();
+  });
+
+  it('moves a file into another existing directory', async () => {
+    const src = path.join(root, 'a.yml');
+    await fsp.writeFile(src, 'hi');
+    await fsp.mkdir(path.join(root, 'sub'));
+    const dst = path.join(root, 'sub', 'a.yml');
+    await renameEntry(src, dst);
+    expect(await fsp.readFile(dst, 'utf8')).toBe('hi');
+  });
+
+  it('renames a directory recursively', async () => {
+    const src = path.join(root, 'old');
+    await fsp.mkdir(src);
+    await fsp.writeFile(path.join(src, 'inner.yml'), 'x');
+    const dst = path.join(root, 'new');
+    await renameEntry(src, dst);
+    expect(await fsp.readFile(path.join(dst, 'inner.yml'), 'utf8')).toBe('x');
+    await expect(fsp.stat(src)).rejects.toThrow();
+  });
+
+  it('no-ops when source and destination are equal', async () => {
+    const p = path.join(root, 'a.yml');
+    await fsp.writeFile(p, 'x');
+    await renameEntry(p, p);
+    expect(await fsp.readFile(p, 'utf8')).toBe('x');
+  });
+
+  it('throws NOT_FOUND when the source is missing', async () => {
+    await expect(
+      renameEntry(path.join(root, 'missing.yml'), path.join(root, 'a.yml')),
+    ).rejects.toEqual(expect.objectContaining({ code: 'NOT_FOUND' }));
+  });
+
+  it('throws ALREADY_EXISTS when the destination exists', async () => {
+    const src = path.join(root, 'a.yml');
+    const dst = path.join(root, 'b.yml');
+    await fsp.writeFile(src, 'src');
+    await fsp.writeFile(dst, 'dst');
+    await expect(renameEntry(src, dst)).rejects.toEqual(
+      expect.objectContaining({ code: 'ALREADY_EXISTS' }),
+    );
+    // Neither side modified.
+    expect(await fsp.readFile(src, 'utf8')).toBe('src');
+    expect(await fsp.readFile(dst, 'utf8')).toBe('dst');
+  });
+
+  it('throws NOT_FOUND when the destination parent directory is missing', async () => {
+    const src = path.join(root, 'a.yml');
+    await fsp.writeFile(src, 'x');
+    await expect(
+      renameEntry(src, path.join(root, 'missing', 'a.yml')),
+    ).rejects.toEqual(expect.objectContaining({ code: 'NOT_FOUND' }));
+    // Source untouched.
+    expect(await fsp.readFile(src, 'utf8')).toBe('x');
   });
 });
 

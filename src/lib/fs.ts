@@ -274,6 +274,66 @@ async function walkForYaml(
 }
 
 /**
+ * Rename (or move) a file or directory. Fails with:
+ * - `NOT_FOUND` if the source does not exist or the destination's parent
+ *   directory does not exist
+ * - `ALREADY_EXISTS` if the destination path already exists (we never
+ *   overwrite on rename)
+ *
+ * Uses `fs.rename` under the hood, which is atomic within a single
+ * filesystem on POSIX. Cross-device moves will fail with `EXDEV` and
+ * surface as a generic 500 — acceptable since /data is a single mount
+ * in production.
+ *
+ * There is a small TOCTOU race between the "destination exists" check
+ * and the actual `rename` call: another process could create the
+ * destination in between. For the intended single-user workbench this
+ * is acceptable.
+ */
+export async function renameEntry(
+  sourceAbs: string,
+  destinationAbs: string,
+): Promise<void> {
+  if (sourceAbs === destinationAbs) return;
+
+  // Source must exist.
+  try {
+    await fs.stat(sourceAbs);
+  } catch (err) {
+    if (isNodeErrnoException(err) && err.code === 'ENOENT') {
+      throw new FsError(`Not found: ${sourceAbs}`, 'NOT_FOUND');
+    }
+    throw err;
+  }
+
+  // Destination must NOT exist.
+  try {
+    await fs.stat(destinationAbs);
+    throw new FsError(
+      `Already exists: ${destinationAbs}`,
+      'ALREADY_EXISTS',
+    );
+  } catch (err) {
+    if (err instanceof FsError) throw err;
+    if (!isNodeErrnoException(err) || err.code !== 'ENOENT') throw err;
+    // ENOENT is the happy path — the destination is free.
+  }
+
+  try {
+    await fs.rename(sourceAbs, destinationAbs);
+  } catch (err) {
+    if (isNodeErrnoException(err) && err.code === 'ENOENT') {
+      // Destination parent directory doesn't exist.
+      throw new FsError(
+        `Parent directory not found: ${path.dirname(destinationAbs)}`,
+        'NOT_FOUND',
+      );
+    }
+    throw err;
+  }
+}
+
+/**
  * Copy a file from one absolute path to another. Fails if the destination
  * already exists or the source is missing.
  */

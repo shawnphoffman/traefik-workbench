@@ -48,6 +48,11 @@ interface DeleteDialogState {
   entry: TreeEntry | null;
 }
 
+interface RenameDialogState {
+  open: boolean;
+  entry: TreeEntry | null;
+}
+
 export function FileTree() {
   const {
     treeEntries,
@@ -60,6 +65,7 @@ export function FileTree() {
     createFile,
     createDirectory,
     deletePath,
+    renamePath,
   } = useWorkbench();
 
   const { toast } = useToast();
@@ -75,6 +81,10 @@ export function FileTree() {
     parent: '',
   });
   const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({
+    open: false,
+    entry: null,
+  });
+  const [renameDialog, setRenameDialog] = useState<RenameDialogState>({
     open: false,
     entry: null,
   });
@@ -141,6 +151,37 @@ export function FileTree() {
     [createDialog, createFile, createDirectory, toast],
   );
 
+  const handleRenameSubmit = useCallback(
+    async (name: string) => {
+      const entry = renameDialog.entry;
+      if (!entry) return;
+      const trimmed = name.trim();
+      const slash = entry.path.lastIndexOf('/');
+      const parentDir = slash === -1 ? '' : entry.path.slice(0, slash);
+      const destination =
+        parentDir.length > 0 ? `${parentDir}/${trimmed}` : trimmed;
+      if (destination === entry.path) {
+        setRenameDialog({ open: false, entry: null });
+        return;
+      }
+      try {
+        await renamePath(entry.path, destination);
+        toast({
+          kind: 'success',
+          message: `Renamed to ${destination}`,
+        });
+        setRenameDialog({ open: false, entry: null });
+      } catch (err) {
+        toast({
+          kind: 'error',
+          title: 'Rename failed',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [renameDialog.entry, renamePath, toast],
+  );
+
   const handleDeleteSubmit = useCallback(async () => {
     const entry = deleteDialog.entry;
     if (!entry) return;
@@ -160,6 +201,16 @@ export function FileTree() {
   const createValidator = useCallback(
     (value: string) => validateEntryName(value, createDialog.kind),
     [createDialog.kind],
+  );
+
+  const renameValidator = useCallback(
+    (value: string) => {
+      const entry = renameDialog.entry;
+      if (!entry) return null;
+      const kind: CreateKind = entry.kind === 'directory' ? 'directory' : 'file';
+      return validateEntryName(value, kind);
+    },
+    [renameDialog.entry],
   );
 
   // The arborist tree needs a key that changes when the underlying data
@@ -246,6 +297,9 @@ export function FileTree() {
             {(props) => (
               <FileTreeNode
                 {...props}
+                onRequestRename={(entry) =>
+                  setRenameDialog({ open: true, entry })
+                }
                 onRequestDelete={(entry) =>
                   setDeleteDialog({ open: true, entry })
                 }
@@ -276,6 +330,34 @@ export function FileTree() {
         validate={createValidator}
         onConfirm={handleCreateSubmit}
         onCancel={() => setCreateDialog((p) => ({ ...p, open: false }))}
+      />
+
+      <InputDialog
+        open={renameDialog.open}
+        title={
+          renameDialog.entry?.kind === 'directory'
+            ? 'Rename folder'
+            : 'Rename file'
+        }
+        description={
+          renameDialog.entry ? (
+            <>
+              Renaming{' '}
+              <code className="rounded bg-neutral-800 px-1 py-0.5 font-mono text-xs">
+                {renameDialog.entry.path}
+              </code>
+            </>
+          ) : null
+        }
+        label="New name"
+        placeholder={
+          renameDialog.entry?.kind === 'file' ? 'example.yml' : 'new-name'
+        }
+        initialValue={renameDialog.entry?.name ?? ''}
+        confirmLabel="Rename"
+        validate={renameValidator}
+        onConfirm={handleRenameSubmit}
+        onCancel={() => setRenameDialog({ open: false, entry: null })}
       />
 
       <ConfirmDialog
@@ -374,8 +456,10 @@ function FileTreeNode({
   node,
   style,
   dragHandle,
+  onRequestRename,
   onRequestDelete,
 }: NodeRendererProps<TreeEntry> & {
+  onRequestRename: (entry: TreeEntry) => void;
   onRequestDelete: (entry: TreeEntry) => void;
 }) {
   const isDirectory = node.data.kind === 'directory';
@@ -394,6 +478,19 @@ function FileTreeNode({
     >
       <span className="inline-block w-4 text-center text-xs">{icon}</span>
       <span className="flex-1 truncate">{node.data.name}</span>
+      <Tooltip content="Rename">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRequestRename(node.data);
+          }}
+          className="invisible ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-sky-300 group-hover:visible"
+          aria-label={`Rename ${node.data.path}`}
+        >
+          ✎
+        </button>
+      </Tooltip>
       <Tooltip content="Delete">
         <button
           type="button"

@@ -35,6 +35,11 @@ export type CreateEntryRequest =
   | { type: 'file'; content?: string }
   | { type: 'directory' };
 
+export interface RenameEntryRequest {
+  /** New path, relative to the data root. Must not already exist. */
+  destinationPath: string;
+}
+
 export interface TemplateEntry {
   /** Base filename (e.g., `router.yml`). */
   name: string;

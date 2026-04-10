@@ -6,6 +6,8 @@
  * POST   /api/files/foo/bar.yml   → create new file or directory;
  *                                    body: { type: 'file', content? } or
  *                                          { type: 'directory' }
+ * PATCH  /api/files/foo/bar.yml   → rename (move) file or directory;
+ *                                    body: { destinationPath }
  * DELETE /api/files/foo/bar.yml   → delete file or directory (recursive)
  *
  * All paths are sanitized against DATA_DIR before any filesystem call.
@@ -20,11 +22,13 @@ import {
   createFile,
   createDirectory,
   deleteEntry,
+  renameEntry,
 } from '@/lib/fs';
 import { errorResponse, jsonError } from '@/lib/api-errors';
 import type {
   CreateEntryRequest,
   FileContentResponse,
+  RenameEntryRequest,
   WriteFileRequest,
 } from '@/types';
 
@@ -100,6 +104,45 @@ export async function POST(request: NextRequest, context: Context) {
       await createFile(resolved, content);
     }
     return Response.json({ ok: true }, { status: 201 });
+  } catch (err) {
+    return errorResponse(err);
+  }
+}
+
+export async function PATCH(request: NextRequest, context: Context) {
+  const { path } = await context.params;
+  const resolved = resolveDataPath(path);
+  if (resolved === null) {
+    return jsonError(400, 'Invalid path');
+  }
+  if (resolved === DATA_DIR) {
+    return jsonError(400, 'Refusing to rename the data root');
+  }
+
+  let body: RenameEntryRequest;
+  try {
+    body = (await request.json()) as RenameEntryRequest;
+  } catch {
+    return jsonError(400, 'Invalid JSON body');
+  }
+  if (typeof body?.destinationPath !== 'string') {
+    return jsonError(400, '`destinationPath` must be a string');
+  }
+
+  const resolvedDest = resolveDataPath(body.destinationPath);
+  if (resolvedDest === null) {
+    return jsonError(400, 'Invalid destination path');
+  }
+  if (resolvedDest === DATA_DIR) {
+    return jsonError(400, 'Refusing to rename to the data root');
+  }
+
+  try {
+    await renameEntry(resolved, resolvedDest);
+    return Response.json({
+      ok: true,
+      path: relativeFromRoot(DATA_DIR, resolvedDest),
+    });
   } catch (err) {
     return errorResponse(err);
   }
