@@ -14,14 +14,17 @@ import { FileTree } from '@/components/FileTree/FileTree';
 import { EditorTabs } from '@/components/Editor/EditorTabs';
 import { EditorPane } from '@/components/Editor/EditorPane';
 import { YamlTreePanel } from '@/components/YamlTree/YamlTreePanel';
+import { ToastProvider } from '@/components/ui/Toast';
 
 import { WorkbenchProvider, useWorkbench } from './WorkbenchContext';
 
 export function Workbench() {
   return (
-    <WorkbenchProvider>
-      <WorkbenchLayout />
-    </WorkbenchProvider>
+    <ToastProvider>
+      <WorkbenchProvider>
+        <WorkbenchLayout />
+      </WorkbenchProvider>
+    </ToastProvider>
   );
 }
 

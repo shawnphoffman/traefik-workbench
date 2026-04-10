@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Monaco editor for the active file.
+ * Monaco editor for the active file, plus a small status footer.
  *
  * Loaded via `next/dynamic` with `ssr: false` because Monaco depends on
  * `window`. The loader displays a lightweight fallback until the
@@ -10,20 +10,29 @@
  * Editor bridge:
  * - On mount, we register the editor instance with the Workbench
  *   context so the YAML tree panel can scroll to clicked nodes.
- * - We bind Cmd/Ctrl+S to `saveActive()`.
+ * - We bind Cmd/Ctrl+S → saveActive(), Cmd/Ctrl+Shift+S → saveAll(),
+ *   and Cmd/Ctrl+W → closeActive(). Monaco intercepts these only when
+ *   the editor is focused; outside the editor the browser gets them
+ *   first (which is unavoidable for Cmd+W without an Electron shell).
  * - We use the `path` prop so Monaco maintains a separate model per
  *   open file — switching tabs preserves undo history per file.
+ *
+ * Footer status:
+ * - "Modified" / "Saved" / "Saving…" / "Save failed: …"
+ * - Active file path on the right
  */
 
 import dynamic from 'next/dynamic';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import type { OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 
 import {
+  isDirty,
   useActiveFile,
   useWorkbench,
 } from '@/components/Workbench/WorkbenchContext';
+import { useToast } from '@/components/ui/Toast';
 
 const MonacoEditor = dynamic(
   () => import('@monaco-editor/react').then((mod) => mod.default),
@@ -38,24 +47,73 @@ const MonacoEditor = dynamic(
 );
 
 export function EditorPane() {
-  const { updateContent, saveActive, registerEditor } = useWorkbench();
+  const { updateContent, saveActive, saveAll, closeActive, registerEditor } =
+    useWorkbench();
   const active = useActiveFile();
+  const { toast } = useToast();
+
+  const [saving, setSaving] = useState<boolean>(false);
+
+  const handleSaveActive = useCallback(async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      await saveActive();
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Save failed',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }, [saveActive, saving, toast]);
+
+  const handleSaveAll = useCallback(async () => {
+    if (saving) return;
+    setSaving(true);
+    try {
+      const { saved, failed } = await saveAll();
+      if (failed > 0) {
+        toast({
+          kind: 'error',
+          title: 'Save all: some files failed',
+          message: `${saved} saved, ${failed} failed`,
+        });
+      } else if (saved > 0) {
+        toast({
+          kind: 'success',
+          message: `Saved ${saved} file${saved === 1 ? '' : 's'}`,
+        });
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [saveAll, saving, toast]);
 
   const handleMount = useCallback<OnMount>(
     (editorInstance, monacoInstance) => {
       registerEditor(editorInstance);
+      const { KeyMod, KeyCode } = monacoInstance;
 
-      // Cmd/Ctrl+S → save active file. Using addCommand with the
-      // KeyMod/KeyCode constants is the officially supported way per
-      // Monaco docs.
+      // Cmd/Ctrl+S → save active
+      editorInstance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, () => {
+        void handleSaveActive();
+      });
+      // Cmd/Ctrl+Shift+S → save all
       editorInstance.addCommand(
-        monacoInstance.KeyMod.CtrlCmd | monacoInstance.KeyCode.KeyS,
+        KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyS,
         () => {
-          void saveActive();
+          void handleSaveAll();
         },
       );
+      // Cmd/Ctrl+W → close active tab
+      editorInstance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyW, () => {
+        closeActive();
+      });
     },
-    [registerEditor, saveActive],
+    [registerEditor, handleSaveActive, handleSaveAll, closeActive],
   );
 
   const handleChange = useCallback(
@@ -66,11 +124,34 @@ export function EditorPane() {
     [active, updateContent],
   );
 
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="min-h-0 flex-1">
+        <EditorBody
+          active={active}
+          onMount={handleMount}
+          onChange={handleChange}
+        />
+      </div>
+      <StatusBar active={active} saving={saving} />
+    </div>
+  );
+}
+
+function EditorBody({
+  active,
+  onMount,
+  onChange,
+}: {
+  active: ReturnType<typeof useActiveFile>;
+  onMount: OnMount;
+  onChange: (value: string | undefined) => void;
+}) {
   if (!active) {
     return (
       <div className="flex h-full items-center justify-center text-neutral-500">
-        <div className="text-center">
-          <div className="text-sm">Open a file from the left to start editing.</div>
+        <div className="text-center text-sm">
+          Open a file from the left to start editing.
         </div>
       </div>
     );
@@ -103,10 +184,50 @@ export function EditorPane() {
       defaultLanguage="yaml"
       language="yaml"
       theme="vs-dark"
-      onMount={handleMount}
-      onChange={handleChange}
+      onMount={onMount}
+      onChange={onChange}
       options={MONACO_OPTIONS}
     />
+  );
+}
+
+function StatusBar({
+  active,
+  saving,
+}: {
+  active: ReturnType<typeof useActiveFile>;
+  saving: boolean;
+}) {
+  let status: {
+    label: string;
+    tone: 'idle' | 'dirty' | 'saving' | 'error';
+  };
+  if (!active) {
+    status = { label: 'No file', tone: 'idle' };
+  } else if (active.loading) {
+    status = { label: 'Loading…', tone: 'idle' };
+  } else if (active.error) {
+    status = { label: `Error: ${active.error}`, tone: 'error' };
+  } else if (saving) {
+    status = { label: 'Saving…', tone: 'saving' };
+  } else if (isDirty(active)) {
+    status = { label: 'Modified', tone: 'dirty' };
+  } else {
+    status = { label: 'Saved', tone: 'idle' };
+  }
+
+  const toneClass = {
+    idle: 'text-neutral-400',
+    dirty: 'text-amber-300',
+    saving: 'text-sky-300',
+    error: 'text-red-300',
+  }[status.tone];
+
+  return (
+    <div className="flex items-center justify-between border-t border-neutral-800 bg-neutral-950 px-3 py-1 text-xs">
+      <span className={toneClass}>{status.label}</span>
+      <span className="truncate text-neutral-500">{active?.path ?? ''}</span>
+    </div>
   );
 }
 

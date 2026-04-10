@@ -5,22 +5,47 @@
  * `react-arborist`.
  *
  * Interaction model:
- * - Single click: select (arborist default)
- * - Double click / Enter: open file in editor (via `onActivate`)
- * - Directories toggle open on activation
+ * - Single click on a file: open in editor
+ * - Single click on a directory: toggle expand/collapse
+ * - Hover over a row: reveal a trash icon → delete (with confirmation)
  *
- * `react-arborist`'s `Tree` requires numeric `width` and `height`
- * props, so we measure the container with `useResizeObserver` and only
- * mount the tree once we have real dimensions. A simple skeleton
- * placeholder is shown before that.
+ * Header toolbar:
+ * - `+file` — new file (target directory is the selected folder or root)
+ * - `+dir`  — new folder
+ * - `⧉`     — open the Templates dialog
+ * - `↻`     — reload the tree
+ * - `«`     — collapse the files panel
+ *
+ * `react-arborist`'s `Tree` requires numeric `width`/`height` props, so
+ * we measure the container with `useResizeObserver` and only mount the
+ * tree once we have real dimensions. A simple skeleton placeholder is
+ * shown before that.
  */
 
 import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
 import { useWorkbench } from '@/components/Workbench/WorkbenchContext';
 import { useResizeObserver } from '@/hooks/useResizeObserver';
+import { useToast } from '@/components/ui/Toast';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { InputDialog } from '@/components/ui/InputDialog';
+import { TemplatesDialog } from '@/components/Templates/TemplatesDialog';
 import type { TreeEntry } from '@/types';
+
+type CreateKind = 'file' | 'directory';
+
+interface CreateDialogState {
+  open: boolean;
+  kind: CreateKind;
+  /** Parent directory path (relative, empty string = root). */
+  parent: string;
+}
+
+interface DeleteDialogState {
+  open: boolean;
+  entry: TreeEntry | null;
+}
 
 export function FileTree() {
   const {
@@ -31,12 +56,32 @@ export function FileTree() {
     openFile,
     activePath,
     toggleLeft,
+    createFile,
+    createDirectory,
+    deletePath,
   } = useWorkbench();
 
+  const { toast } = useToast();
   const { ref, size } = useResizeObserver<HTMLDivElement>();
+
+  // Selection state tracked locally so we know where to create new
+  // entries relative to (the nearest directory above the selection).
+  const [selectedEntry, setSelectedEntry] = useState<TreeEntry | null>(null);
+
+  const [createDialog, setCreateDialog] = useState<CreateDialogState>({
+    open: false,
+    kind: 'file',
+    parent: '',
+  });
+  const [deleteDialog, setDeleteDialog] = useState<DeleteDialogState>({
+    open: false,
+    entry: null,
+  });
+  const [templatesOpen, setTemplatesOpen] = useState<boolean>(false);
 
   const handleActivate = useCallback(
     (node: NodeApi<TreeEntry>) => {
+      setSelectedEntry(node.data);
       if (node.data.kind === 'file') {
         void openFile(node.data.path);
       } else {
@@ -46,29 +91,121 @@ export function FileTree() {
     [openFile],
   );
 
+  // Resolve the directory path used as the parent for new entries.
+  // If a file is selected, its containing directory is used; if a
+  // directory is selected, that directory itself; otherwise the root.
+  const activeParent = useMemo(() => {
+    if (!selectedEntry) return '';
+    if (selectedEntry.kind === 'directory') return selectedEntry.path;
+    const slash = selectedEntry.path.lastIndexOf('/');
+    return slash === -1 ? '' : selectedEntry.path.slice(0, slash);
+  }, [selectedEntry]);
+
+  const openCreateDialog = (kind: CreateKind) =>
+    setCreateDialog({ open: true, kind, parent: activeParent });
+
+  const handleCreateSubmit = useCallback(
+    async (name: string) => {
+      const trimmed = name.trim();
+      const joined =
+        createDialog.parent.length > 0
+          ? `${createDialog.parent}/${trimmed}`
+          : trimmed;
+      try {
+        if (createDialog.kind === 'file') {
+          await createFile(joined);
+          toast({
+            kind: 'success',
+            message: `Created ${joined}`,
+          });
+        } else {
+          await createDirectory(joined);
+          toast({
+            kind: 'success',
+            message: `Created folder ${joined}`,
+          });
+        }
+        setCreateDialog((prev) => ({ ...prev, open: false }));
+      } catch (err) {
+        toast({
+          kind: 'error',
+          title:
+            createDialog.kind === 'file'
+              ? 'Could not create file'
+              : 'Could not create folder',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [createDialog, createFile, createDirectory, toast],
+  );
+
+  const handleDeleteSubmit = useCallback(async () => {
+    const entry = deleteDialog.entry;
+    if (!entry) return;
+    try {
+      await deletePath(entry.path);
+      toast({ kind: 'success', message: `Deleted ${entry.path}` });
+      setDeleteDialog({ open: false, entry: null });
+    } catch (err) {
+      toast({
+        kind: 'error',
+        title: 'Delete failed',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [deleteDialog.entry, deletePath, toast]);
+
+  const createValidator = useCallback(
+    (value: string) => validateEntryName(value, createDialog.kind),
+    [createDialog.kind],
+  );
+
+  // The arborist tree needs a key that changes when the underlying data
+  // changes; otherwise state (e.g. open dirs) can get stuck on stale
+  // node identities. React will still reconcile children correctly
+  // because idAccessor=path identifies nodes by stable path.
+
   return (
     <div className="flex h-full min-h-0 flex-col text-sm text-neutral-200">
       <header className="flex items-center justify-between border-b border-neutral-800 px-3 py-2 text-xs uppercase tracking-wide text-neutral-400">
         <span>Files</span>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
+        <div className="flex items-center gap-0.5">
+          <HeaderButton
+            onClick={() => openCreateDialog('file')}
+            label="New file"
+            title="New file"
+          >
+            ＋
+          </HeaderButton>
+          <HeaderButton
+            onClick={() => openCreateDialog('directory')}
+            label="New folder"
+            title="New folder"
+          >
+            ＋／
+          </HeaderButton>
+          <HeaderButton
+            onClick={() => setTemplatesOpen(true)}
+            label="Open templates"
+            title="Templates"
+          >
+            ⧉
+          </HeaderButton>
+          <HeaderButton
             onClick={() => void reloadTree()}
-            className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-            aria-label="Reload file tree"
+            label="Reload file tree"
             title="Reload"
           >
             ↻
-          </button>
-          <button
-            type="button"
+          </HeaderButton>
+          <HeaderButton
             onClick={toggleLeft}
-            className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-            aria-label="Collapse files panel"
+            label="Collapse files panel"
             title="Collapse"
           >
             «
-          </button>
+          </HeaderButton>
         </div>
       </header>
 
@@ -105,25 +242,139 @@ export function FileTree() {
             disableDrop
             disableEdit
           >
-            {FileTreeNode}
+            {(props) => (
+              <FileTreeNode
+                {...props}
+                onRequestDelete={(entry) =>
+                  setDeleteDialog({ open: true, entry })
+                }
+              />
+            )}
           </Tree>
         )}
       </div>
+
+      <InputDialog
+        open={createDialog.open}
+        title={
+          createDialog.kind === 'file' ? 'New file' : 'New folder'
+        }
+        description={
+          <>
+            In{' '}
+            <code className="rounded bg-neutral-800 px-1 py-0.5 font-mono text-xs">
+              {createDialog.parent || '/'}
+            </code>
+          </>
+        }
+        label="Name"
+        placeholder={
+          createDialog.kind === 'file' ? 'example.yml' : 'new-folder'
+        }
+        confirmLabel="Create"
+        validate={createValidator}
+        onConfirm={handleCreateSubmit}
+        onCancel={() => setCreateDialog((p) => ({ ...p, open: false }))}
+      />
+
+      <ConfirmDialog
+        open={deleteDialog.open}
+        title={
+          deleteDialog.entry?.kind === 'directory'
+            ? 'Delete folder?'
+            : 'Delete file?'
+        }
+        description={
+          deleteDialog.entry ? (
+            <>
+              This will permanently delete{' '}
+              <code className="rounded bg-neutral-800 px-1 py-0.5 font-mono text-xs">
+                {deleteDialog.entry.path}
+              </code>
+              {deleteDialog.entry.kind === 'directory' && ' and everything inside it'}.
+              This cannot be undone.
+            </>
+          ) : null
+        }
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={handleDeleteSubmit}
+        onCancel={() => setDeleteDialog({ open: false, entry: null })}
+      />
+
+      <TemplatesDialog
+        open={templatesOpen}
+        onClose={() => setTemplatesOpen(false)}
+        defaultDestinationDir={activeParent}
+      />
     </div>
   );
 }
 
 /**
+ * Compact square icon button used in the tree header toolbar.
+ */
+function HeaderButton({
+  children,
+  label,
+  title,
+  onClick,
+}: {
+  children: React.ReactNode;
+  label: string;
+  title: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-6 min-w-6 items-center justify-center rounded px-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+      aria-label={label}
+      title={title}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Validate a path segment used as a new file/folder name. Returns an
+ * error message or null if the value is acceptable.
+ */
+function validateEntryName(value: string, kind: CreateKind): string | null {
+  const name = value.trim();
+  if (name.length === 0) return null; // treated as "empty" — submit disabled
+  if (name.includes('/') || name.includes('\\')) {
+    return 'Name cannot contain slashes.';
+  }
+  if (name === '.' || name === '..') {
+    return 'Name cannot be "." or "..".';
+  }
+  if (name.includes('\0')) {
+    return 'Name contains invalid characters.';
+  }
+  if (kind === 'file') {
+    if (!/\.(ya?ml)$/i.test(name)) {
+      return 'File name must end in .yml or .yaml.';
+    }
+  }
+  return null;
+}
+
+/**
  * Node renderer. Click handling is done by the default row wrapper,
- * which calls `node.handleClick` → `onActivate` on single click. Our
- * `onActivate` handler (in <FileTree>) takes care of toggling
- * directories vs. opening files, so this component is purely visual.
+ * which calls `node.handleClick` → `onActivate` on single click. We
+ * overlay a hover-only trash button on the right side for deletion.
  */
 function FileTreeNode({
   node,
   style,
   dragHandle,
-}: NodeRendererProps<TreeEntry>) {
+  onRequestDelete,
+}: NodeRendererProps<TreeEntry> & {
+  onRequestDelete: (entry: TreeEntry) => void;
+}) {
   const isDirectory = node.data.kind === 'directory';
   const icon = isDirectory ? (node.isOpen ? '📂' : '📁') : '📄';
 
@@ -131,7 +382,7 @@ function FileTreeNode({
     <div
       ref={dragHandle}
       style={style}
-      className={`flex cursor-pointer items-center gap-1 truncate pr-2 ${
+      className={`group flex cursor-pointer items-center gap-1 truncate pr-1 ${
         node.isSelected
           ? 'bg-neutral-800 text-neutral-50'
           : 'text-neutral-200 hover:bg-neutral-900'
@@ -139,7 +390,19 @@ function FileTreeNode({
       title={node.data.path}
     >
       <span className="inline-block w-4 text-center text-xs">{icon}</span>
-      <span className="truncate">{node.data.name}</span>
+      <span className="flex-1 truncate">{node.data.name}</span>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRequestDelete(node.data);
+        }}
+        className="invisible ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-red-300 group-hover:visible"
+        aria-label={`Delete ${node.data.path}`}
+        title="Delete"
+      >
+        🗑
+      </button>
     </div>
   );
 }

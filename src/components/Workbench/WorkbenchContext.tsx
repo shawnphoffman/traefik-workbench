@@ -29,11 +29,14 @@ import type { editor } from 'monaco-editor';
 
 import {
   ApiClientError,
+  copyTemplate,
+  createEntry,
+  deleteEntry,
   fetchFile,
   fetchTree,
   saveFile,
 } from '@/lib/api-client';
-import type { TreeEntry } from '@/types';
+import type { CopyTemplateRequest, TreeEntry } from '@/types';
 
 // ---------- types ----------
 
@@ -79,6 +82,14 @@ interface WorkbenchState {
   setActive: (path: string) => void;
   updateContent: (path: string, content: string) => void;
   saveActive: () => Promise<void>;
+  saveAll: () => Promise<{ saved: number; failed: number }>;
+  closeActive: () => void;
+
+  // Filesystem mutations (reload the tree on success).
+  createFile: (path: string, content?: string) => Promise<void>;
+  createDirectory: (path: string) => Promise<void>;
+  deletePath: (path: string) => Promise<void>;
+  copyTemplateToData: (body: CopyTemplateRequest) => Promise<void>;
 
   // Editor integration
   registerEditor: (
@@ -371,8 +382,102 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       setOpenFiles((prev) =>
         prev.map((f) => (f.path === path ? { ...f, error: message } : f)),
       );
+      throw err;
     }
   }, [activePath]);
+
+  const saveAll = useCallback(async () => {
+    // Snapshot the current open files so we know which ones were dirty
+    // at the moment of the request.
+    let snapshot: OpenFile[] = [];
+    setOpenFiles((prev) => {
+      snapshot = prev;
+      return prev;
+    });
+    const dirty = snapshot.filter((f) => f.content !== f.savedContent);
+
+    let saved = 0;
+    let failed = 0;
+    for (const file of dirty) {
+      try {
+        await saveFile(file.path, file.content);
+        saved++;
+        setOpenFiles((prev) =>
+          prev.map((f) =>
+            f.path === file.path
+              ? { ...f, savedContent: file.content, error: null }
+              : f,
+          ),
+        );
+      } catch (err) {
+        failed++;
+        const message = errorMessage(err);
+        setOpenFiles((prev) =>
+          prev.map((f) =>
+            f.path === file.path ? { ...f, error: message } : f,
+          ),
+        );
+      }
+    }
+    return { saved, failed };
+  }, []);
+
+  const closeActive = useCallback(() => {
+    if (activePath != null) closeFile(activePath);
+  }, [activePath, closeFile]);
+
+  // ---------- filesystem mutations ----------
+
+  const createFile = useCallback(
+    async (path: string, content: string = '') => {
+      await createEntry(path, { type: 'file', content });
+      await reloadTree();
+      // Auto-open the new file as a tab.
+      await openFile(path);
+    },
+    [reloadTree, openFile],
+  );
+
+  const createDirectory = useCallback(
+    async (path: string) => {
+      await createEntry(path, { type: 'directory' });
+      await reloadTree();
+    },
+    [reloadTree],
+  );
+
+  const deletePath = useCallback(
+    async (path: string) => {
+      await deleteEntry(path);
+      // Close any tabs whose path is the deleted path itself or lives
+      // inside a deleted directory.
+      const prefix = path.endsWith('/') ? path : `${path}/`;
+      setOpenFiles((prev) => {
+        const next = prev.filter(
+          (f) => f.path !== path && !f.path.startsWith(prefix),
+        );
+        if (next.length !== prev.length && activePath != null) {
+          const stillOpen = next.some((f) => f.path === activePath);
+          if (!stillOpen) {
+            setActivePath(next.length > 0 ? next[0].path : null);
+          }
+        }
+        return next;
+      });
+      await reloadTree();
+    },
+    [reloadTree, activePath],
+  );
+
+  const copyTemplateToData = useCallback(
+    async (body: CopyTemplateRequest) => {
+      await copyTemplate(body);
+      await reloadTree();
+      // Auto-open the newly copied file.
+      await openFile(body.destinationPath);
+    },
+    [reloadTree, openFile],
+  );
 
   // ---------- editor bridge ----------
 
@@ -414,6 +519,12 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       setActive,
       updateContent,
       saveActive,
+      saveAll,
+      closeActive,
+      createFile,
+      createDirectory,
+      deletePath,
+      copyTemplateToData,
       registerEditor,
       scrollToLine,
     }),
@@ -439,6 +550,12 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       setActive,
       updateContent,
       saveActive,
+      saveAll,
+      closeActive,
+      createFile,
+      createDirectory,
+      deletePath,
+      copyTemplateToData,
       registerEditor,
       scrollToLine,
     ],
