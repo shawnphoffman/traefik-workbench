@@ -11,14 +11,22 @@ import path from 'node:path';
 
 /**
  * Absolute directory containing YAML files the user can edit.
+ *
+ * The `turbopackIgnore` comment tells Next.js's build-time file tracer
+ * not to follow this call — otherwise it interprets the dynamic
+ * `process.env.DATA_DIR` argument as potentially tracing the entire
+ * filesystem and emits a warning. The value is still resolved at
+ * runtime as expected.
  */
-export const DATA_DIR: string = path.resolve(process.env.DATA_DIR ?? '/data');
+export const DATA_DIR: string = path.resolve(
+  /*turbopackIgnore: true*/ process.env.DATA_DIR ?? '/data',
+);
 
 /**
  * Absolute directory containing template YAML files.
  */
 export const TEMPLATES_DIR: string = path.resolve(
-  process.env.TEMPLATES_DIR ?? '/templates',
+  /*turbopackIgnore: true*/ process.env.TEMPLATES_DIR ?? '/templates',
 );
 
 /**
