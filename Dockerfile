@@ -23,8 +23,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build-time env. NEXT_TELEMETRY_DISABLED keeps builds silent in CI.
+# Build-time env. NEXT_TELEMETRY_DISABLED keeps builds silent in CI,
+# and BUILD_STANDALONE=1 flips on `output: 'standalone'` so the
+# runtime stage has a self-contained server to copy.
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV BUILD_STANDALONE=1
 
 RUN npm run build
 

@@ -1,13 +1,17 @@
 import type { NextConfig } from 'next';
 
 /**
- * `output: 'standalone'` produces a minimal self-contained server
- * under `.next/standalone/` that the Docker runtime stage copies in
- * place of the full `node_modules`. See:
+ * `output: 'standalone'` is opt-in via the `BUILD_STANDALONE`
+ * environment variable so it only runs during the Docker build, where
+ * we want a minimal self-contained `.next/standalone/` server. Local
+ * development and Playwright E2E use the regular `next start` server
+ * (which warns if standalone is unconditionally enabled).
+ *
+ * See:
  * https://nextjs.org/docs/app/api-reference/config/next-config-js/output
  */
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  output: process.env.BUILD_STANDALONE === '1' ? 'standalone' : undefined,
 };
 
 export default nextConfig;
