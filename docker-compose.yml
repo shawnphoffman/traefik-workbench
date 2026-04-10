@@ -1,0 +1,62 @@
+# Minimal single-service stack for running traefik-workbench against
+# an existing Traefik configuration directory on the host.
+#
+# Usage:
+#   1. Set DATA_DIR_HOST to the absolute path of your Traefik dynamic-
+#      config directory. TEMPLATES_DIR_HOST is optional.
+#   2. `docker compose up -d`
+#   3. Browse to http://localhost:3000
+#
+# See README.md for deploying behind Traefik itself (router labels).
+services:
+  workbench:
+    image: ghcr.io/shoffman/traefik-workbench:latest
+    # Uncomment the build block to build from source locally instead
+    # of pulling the published image:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: traefik-workbench
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Paths inside the container. Don't change these unless you also
+      # change the bind mount targets below.
+      DATA_DIR: /data
+      TEMPLATES_DIR: /templates
+      # Set to "false" to let the workbench write to /templates.
+      TEMPLATES_READONLY: "true"
+    volumes:
+      # REQUIRED: bind-mount the directory Traefik reads its dynamic
+      # configuration from. The workbench will read and write files
+      # here. For a typical single-host setup this is something like
+      # /etc/traefik/dynamic or ~/traefik/config.
+      - ${DATA_DIR_HOST:-./data}:/data
+      # OPTIONAL: a directory of reusable YAML snippets the workbench
+      # can copy into /data. Defaults to a local ./templates folder.
+      - ${TEMPLATES_DIR_HOST:-./templates}:/templates:ro
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+    # Example: expose the workbench through an existing Traefik
+    # instance on a docker network called `traefik-public`. Uncomment
+    # and adjust the hostname / certresolver to suit your setup.
+    #
+    # networks:
+    #   - traefik-public
+    # labels:
+    #   traefik.enable: "true"
+    #   traefik.docker.network: "traefik-public"
+    #   traefik.http.routers.workbench.rule: "Host(`workbench.example.com`)"
+    #   traefik.http.routers.workbench.entrypoints: "websecure"
+    #   traefik.http.routers.workbench.tls.certresolver: "letsencrypt"
+    #   traefik.http.services.workbench.loadbalancer.server.port: "3000"
+
+# networks:
+#   traefik-public:
+#     external: true

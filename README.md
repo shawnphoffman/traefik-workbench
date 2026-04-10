@@ -2,15 +2,14 @@
 
 A lightweight, self-hosted, web-based YAML editor with a 3-pane interface for managing Traefik configuration files without SSH.
 
-> **Status:** early development — foundation only. See the project plan for the full feature roadmap.
+## Features
 
-## Planned Features
-
-- **Left pane:** file tree browser for a mounted directory
-- **Center pane:** Monaco editor with YAML syntax support and tabs for multiple files
-- **Right pane:** parsed YAML structure tree (click to navigate the editor)
-- **Templates:** curated "golden" YAML files that can be copied when creating new files
-- Docker-deployable, configurable via environment variables
+- **Left pane:** file tree browser for the mounted data directory — create, rename, delete files and folders in place
+- **Center pane:** Monaco editor with YAML syntax highlighting, multi-file tabs, dirty indicators, Cmd/Ctrl+S to save, Cmd/Ctrl+Shift+S to save all, Cmd/Ctrl+W to close
+- **Right pane:** live YAML structure outline — click any node to jump the editor to that line
+- **Templates:** copy curated YAML snippets from a separate templates directory into your config
+- **Unsaved-changes guard:** confirmation on close, plus a browser `beforeunload` prompt
+- **Persistent layout:** collapse or resize either side pane; widths survive reloads
 
 ## Tech Stack
 
@@ -21,6 +20,73 @@ A lightweight, self-hosted, web-based YAML editor with a 3-pane interface for ma
 - `react-arborist` (file tree)
 - Vitest + React Testing Library (unit/component tests)
 - Playwright (E2E)
+
+## Quick Start (Docker)
+
+The fastest way to run traefik-workbench against an existing Traefik config directory:
+
+```bash
+# 1. Point the compose file at your host's Traefik dynamic config dir.
+export DATA_DIR_HOST=/etc/traefik/dynamic
+
+# 2. (Optional) Point at a templates directory.
+export TEMPLATES_DIR_HOST=./templates
+
+# 3. Start it.
+docker compose up -d
+```
+
+Then open <http://localhost:3000>.
+
+By default the compose file pulls the published image from `ghcr.io/shoffman/traefik-workbench:latest`. To build from source instead, uncomment the `build:` block in [`docker-compose.yml`](./docker-compose.yml).
+
+### Environment variables
+
+| Variable             | Default       | Description                                                                                              |
+| -------------------- | ------------- | -------------------------------------------------------------------------------------------------------- |
+| `DATA_DIR`           | `/data`       | Absolute path (inside the container) to the directory of YAML files the workbench can read and write.   |
+| `TEMPLATES_DIR`      | `/templates`  | Absolute path (inside the container) to a directory of template YAML snippets to copy into `DATA_DIR`.  |
+| `TEMPLATES_READONLY` | `true`        | Set to `false` to allow writes to `TEMPLATES_DIR`. Defaults to read-only.                                |
+| `PORT`               | `3000`        | Port the Next.js server listens on inside the container.                                                 |
+| `HOSTNAME`           | `0.0.0.0`     | Bind address. Leave as-is for container deployments.                                                     |
+
+All paths are sanitized against `DATA_DIR` / `TEMPLATES_DIR` before any filesystem call — user input cannot escape the configured roots.
+
+### Running behind Traefik
+
+The included `docker-compose.yml` has a commented-out block of Traefik router labels. Uncomment and adjust the hostname and cert resolver, then attach the container to the same docker network as your Traefik instance:
+
+```yaml
+    networks:
+      - traefik-public
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "traefik-public"
+      traefik.http.routers.workbench.rule: "Host(`workbench.example.com`)"
+      traefik.http.routers.workbench.entrypoints: "websecure"
+      traefik.http.routers.workbench.tls.certresolver: "letsencrypt"
+      traefik.http.services.workbench.loadbalancer.server.port: "3000"
+
+networks:
+  traefik-public:
+    external: true
+```
+
+> **Security note:** traefik-workbench has no built-in authentication. Always put it behind an authenticating proxy (Traefik's [BasicAuth middleware](https://doc.traefik.io/traefik/middlewares/http/basicauth/), [forward-auth](https://doc.traefik.io/traefik/middlewares/http/forwardauth/), or an OIDC gateway) before exposing it to the public internet.
+
+### Building the image manually
+
+```bash
+docker build -t traefik-workbench .
+docker run -d \
+  -p 3000:3000 \
+  -v /etc/traefik/dynamic:/data \
+  -v "$PWD/templates:/templates:ro" \
+  --name traefik-workbench \
+  traefik-workbench
+```
+
+The image is a multi-stage build that uses Next.js's `output: 'standalone'` mode, runs as an unprivileged `nextjs` user (uid `1001`), and exposes a healthcheck on `/`.
 
 ## Development
 
@@ -34,7 +100,7 @@ npm run lint
 npm run type-check
 ```
 
-Configuration is read from environment variables — see [`.env.example`](./.env.example).
+For local development, copy [`.env.example`](./.env.example) to `.env.local` and point `DATA_DIR` / `TEMPLATES_DIR` at a scratch directory. A `.local-dev/` folder is gitignored and ready to use.
 
 ## License
 

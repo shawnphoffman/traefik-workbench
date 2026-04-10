@@ -1,0 +1,32 @@
+# Keep the build context small and avoid shipping local scratch data.
+node_modules
+.next
+.git
+.gitignore
+.github
+
+# Local dev + test fixtures — the container uses bind mounts instead.
+.local-dev
+test-data
+test-templates
+
+# Playwright artifacts
+playwright-report
+test-results
+
+# Editor + OS noise
+.vscode
+.idea
+.DS_Store
+
+# Docs and meta
+README.md
+LICENSE
+AGENTS.md
+CLAUDE.md
+.claude
+
+# Env files (never bake into the image)
+.env
+.env.local
+.env.*.local
