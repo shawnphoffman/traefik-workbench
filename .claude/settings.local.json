@@ -1,8 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm --version)",
-      "Bash(npx --yes create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --turbopack --import-alias \"@/*\" --no-git --use-npm --yes)"
+      "Bash(*)",
+      "Edit(*)",
+      "Write(*)"
+    ],
+    "deny": [
+      "Bash(git push*)",
+      "Bash(git push --force*)"
     ]
   }
 }

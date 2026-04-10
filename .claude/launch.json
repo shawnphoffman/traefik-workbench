@@ -1,0 +1,45 @@
+{
+  "version": "0.1",
+  "configurations": [
+    {
+      "name": "Development",
+      "type": "node",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "DATA_DIR": "./test-data",
+        "TEMPLATES_DIR": "./test-templates"
+      }
+    },
+    {
+      "name": "Test",
+      "type": "node",
+      "command": "npm run test",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Test (Watch)",
+      "type": "node",
+      "command": "npm run test:watch",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "E2E Tests",
+      "type": "node",
+      "command": "npm run test:e2e",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Build",
+      "type": "node",
+      "command": "npm run build",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "name": "Docker Build",
+      "type": "shell",
+      "command": "docker build -t traefik-workbench:dev -f docker/Dockerfile .",
+      "cwd": "${workspaceFolder}"
+    }
+  ]
+}
