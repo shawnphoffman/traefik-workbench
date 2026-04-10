@@ -30,6 +30,7 @@ export function FileTree() {
     reloadTree,
     openFile,
     activePath,
+    toggleLeft,
   } = useWorkbench();
 
   const { ref, size } = useResizeObserver<HTMLDivElement>();
@@ -49,15 +50,26 @@ export function FileTree() {
     <div className="flex h-full min-h-0 flex-col text-sm text-neutral-200">
       <header className="flex items-center justify-between border-b border-neutral-800 px-3 py-2 text-xs uppercase tracking-wide text-neutral-400">
         <span>Files</span>
-        <button
-          type="button"
-          onClick={() => void reloadTree()}
-          className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-          aria-label="Reload file tree"
-          title="Reload"
-        >
-          ↻
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void reloadTree()}
+            className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+            aria-label="Reload file tree"
+            title="Reload"
+          >
+            ↻
+          </button>
+          <button
+            type="button"
+            onClick={toggleLeft}
+            className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+            aria-label="Collapse files panel"
+            title="Collapse"
+          >
+            «
+          </button>
+        </div>
       </header>
 
       <div ref={ref} className="min-h-0 flex-1 overflow-hidden">

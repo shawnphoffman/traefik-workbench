@@ -24,7 +24,7 @@ import type { YamlTreeNode } from '@/types';
 
 export function YamlTreePanel() {
   const active = useActiveFile();
-  const { scrollToLine } = useWorkbench();
+  const { scrollToLine, toggleRight } = useWorkbench();
 
   const result = useYamlParse(active?.content ?? '');
 
@@ -42,7 +42,7 @@ export function YamlTreePanel() {
 
   if (!active) {
     return (
-      <PanelFrame>
+      <PanelFrame onCollapse={toggleRight}>
         <div className="px-3 py-2 text-neutral-500">No file open.</div>
       </PanelFrame>
     );
@@ -60,7 +60,7 @@ export function YamlTreePanel() {
   ) : null;
 
   return (
-    <PanelFrame>
+    <PanelFrame onCollapse={toggleRight}>
       {errorBanner}
       <div className="min-h-0 flex-1 overflow-auto px-1 py-1 text-sm">
         {tree == null ? (
@@ -75,11 +75,26 @@ export function YamlTreePanel() {
   );
 }
 
-function PanelFrame({ children }: { children: React.ReactNode }) {
+function PanelFrame({
+  children,
+  onCollapse,
+}: {
+  children: React.ReactNode;
+  onCollapse: () => void;
+}) {
   return (
     <div className="flex h-full min-h-0 flex-col text-neutral-200">
       <header className="flex items-center justify-between border-b border-neutral-800 px-3 py-2 text-xs uppercase tracking-wide text-neutral-400">
         <span>Structure</span>
+        <button
+          type="button"
+          onClick={onCollapse}
+          className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+          aria-label="Collapse structure panel"
+          title="Collapse"
+        >
+          »
+        </button>
       </header>
       {children}
     </div>

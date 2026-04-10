@@ -60,6 +60,18 @@ interface WorkbenchState {
   openFiles: OpenFile[];
   activePath: string | null;
 
+  // Layout
+  leftCollapsed: boolean;
+  rightCollapsed: boolean;
+  toggleLeft: () => void;
+  toggleRight: () => void;
+  leftWidth: number;
+  rightWidth: number;
+  setLeftWidth: (px: number) => void;
+  setRightWidth: (px: number) => void;
+  resetLeftWidth: () => void;
+  resetRightWidth: () => void;
+
   // Actions
   reloadTree: () => Promise<void>;
   openFile: (path: string) => Promise<void>;
@@ -73,6 +85,45 @@ interface WorkbenchState {
     editorInstance: editor.IStandaloneCodeEditor | null,
   ) => void;
   scrollToLine: (line: number) => void;
+}
+
+const LAYOUT_STORAGE_KEY = 'traefik-workbench:layout';
+
+/** Default and clamp ranges for side-pane widths (pixels). */
+export const LAYOUT_DEFAULTS = {
+  leftWidth: 256,
+  rightWidth: 320,
+  minLeftWidth: 160,
+  maxLeftWidth: 560,
+  minRightWidth: 200,
+  maxRightWidth: 640,
+} as const;
+
+function clamp(value: number, min: number, max: number): number {
+  if (Number.isNaN(value)) return min;
+  if (value < min) return min;
+  if (value > max) return max;
+  return value;
+}
+
+interface PersistedLayout {
+  leftCollapsed?: boolean;
+  rightCollapsed?: boolean;
+  leftWidth?: number;
+  rightWidth?: number;
+}
+
+function readPersistedLayout(): PersistedLayout {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null) return {};
+    return parsed as PersistedLayout;
+  } catch {
+    return {};
+  }
 }
 
 const WorkbenchContext = createContext<WorkbenchState | null>(null);
@@ -106,6 +157,90 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
+
+  // Layout state. Initialized to defaults so SSR and the first client
+  // render agree (no hydration mismatch), then rehydrated from
+  // localStorage in an effect below.
+  const [leftCollapsed, setLeftCollapsed] = useState<boolean>(false);
+  const [rightCollapsed, setRightCollapsed] = useState<boolean>(false);
+  const [leftWidth, setLeftWidthState] = useState<number>(
+    LAYOUT_DEFAULTS.leftWidth,
+  );
+  const [rightWidth, setRightWidthState] = useState<number>(
+    LAYOUT_DEFAULTS.rightWidth,
+  );
+
+  useEffect(() => {
+    const persisted = readPersistedLayout();
+    if (persisted.leftCollapsed) setLeftCollapsed(true);
+    if (persisted.rightCollapsed) setRightCollapsed(true);
+    if (typeof persisted.leftWidth === 'number') {
+      setLeftWidthState(
+        clamp(
+          persisted.leftWidth,
+          LAYOUT_DEFAULTS.minLeftWidth,
+          LAYOUT_DEFAULTS.maxLeftWidth,
+        ),
+      );
+    }
+    if (typeof persisted.rightWidth === 'number') {
+      setRightWidthState(
+        clamp(
+          persisted.rightWidth,
+          LAYOUT_DEFAULTS.minRightWidth,
+          LAYOUT_DEFAULTS.maxRightWidth,
+        ),
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const payload: PersistedLayout = {
+      leftCollapsed,
+      rightCollapsed,
+      leftWidth,
+      rightWidth,
+    };
+    try {
+      window.localStorage.setItem(
+        LAYOUT_STORAGE_KEY,
+        JSON.stringify(payload),
+      );
+    } catch {
+      // Ignore quota / private-mode errors — layout is a nice-to-have.
+    }
+  }, [leftCollapsed, rightCollapsed, leftWidth, rightWidth]);
+
+  const toggleLeft = useCallback(() => setLeftCollapsed((v) => !v), []);
+  const toggleRight = useCallback(() => setRightCollapsed((v) => !v), []);
+
+  const setLeftWidth = useCallback((px: number) => {
+    setLeftWidthState(
+      clamp(
+        px,
+        LAYOUT_DEFAULTS.minLeftWidth,
+        LAYOUT_DEFAULTS.maxLeftWidth,
+      ),
+    );
+  }, []);
+  const setRightWidth = useCallback((px: number) => {
+    setRightWidthState(
+      clamp(
+        px,
+        LAYOUT_DEFAULTS.minRightWidth,
+        LAYOUT_DEFAULTS.maxRightWidth,
+      ),
+    );
+  }, []);
+  const resetLeftWidth = useCallback(
+    () => setLeftWidthState(LAYOUT_DEFAULTS.leftWidth),
+    [],
+  );
+  const resetRightWidth = useCallback(
+    () => setRightWidthState(LAYOUT_DEFAULTS.rightWidth),
+    [],
+  );
 
   // The Monaco editor instance lives in a ref — it's imperative state
   // that should never trigger re-renders.
@@ -263,6 +398,16 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       treeError,
       openFiles,
       activePath,
+      leftCollapsed,
+      rightCollapsed,
+      toggleLeft,
+      toggleRight,
+      leftWidth,
+      rightWidth,
+      setLeftWidth,
+      setRightWidth,
+      resetLeftWidth,
+      resetRightWidth,
       reloadTree,
       openFile,
       closeFile,
@@ -278,6 +423,16 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       treeError,
       openFiles,
       activePath,
+      leftCollapsed,
+      rightCollapsed,
+      toggleLeft,
+      toggleRight,
+      leftWidth,
+      rightWidth,
+      setLeftWidth,
+      setRightWidth,
+      resetLeftWidth,
+      resetRightWidth,
       reloadTree,
       openFile,
       closeFile,
