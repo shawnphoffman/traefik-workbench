@@ -79,11 +79,23 @@ interface WorkbenchState {
   reloadTree: () => Promise<void>;
   openFile: (path: string) => Promise<void>;
   closeFile: (path: string) => void;
+  /**
+   * Ask to close a file. If the file is dirty, sets `pendingClose` so
+   * the shell can pop a confirmation dialog. If it's clean, closes
+   * immediately.
+   */
+  requestCloseFile: (path: string) => void;
   setActive: (path: string) => void;
   updateContent: (path: string, content: string) => void;
   saveActive: () => Promise<void>;
   saveAll: () => Promise<{ saved: number; failed: number }>;
+  /** Shortcut: request close of the currently active tab. */
   closeActive: () => void;
+
+  // Unsaved-changes confirm flow
+  pendingClosePath: string | null;
+  confirmPendingClose: () => void;
+  cancelPendingClose: () => void;
 
   // Filesystem mutations (reload the tree on success).
   createFile: (path: string, content?: string) => Promise<void>;
@@ -168,6 +180,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
 
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
+  const [pendingClosePath, setPendingClosePath] = useState<string | null>(
+    null,
+  );
 
   // Layout state. Initialized to defaults so SSR and the first client
   // render agree (no hydration mismatch), then rehydrated from
@@ -349,6 +364,54 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     [activePath],
   );
 
+  const requestCloseFile = useCallback(
+    (path: string) => {
+      // Read the latest open-files snapshot via an updater so this
+      // doesn't close over stale state (Cmd+W bound in Monaco captures
+      // the callback at mount time).
+      let dirty = false;
+      setOpenFiles((prev) => {
+        const file = prev.find((f) => f.path === path);
+        if (file && file.content !== file.savedContent) dirty = true;
+        return prev;
+      });
+      if (dirty) {
+        setPendingClosePath(path);
+      } else {
+        closeFile(path);
+      }
+    },
+    [closeFile],
+  );
+
+  const confirmPendingClose = useCallback(() => {
+    const target = pendingClosePath;
+    if (target == null) return;
+    setPendingClosePath(null);
+    closeFile(target);
+  }, [pendingClosePath, closeFile]);
+
+  const cancelPendingClose = useCallback(() => {
+    setPendingClosePath(null);
+  }, []);
+
+  // beforeunload guard: if any open file is dirty, browsers will show
+  // their stock "Leave site?" prompt. The exact text is hard-coded by
+  // the browser for modern versions; we just need to set returnValue.
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      const anyDirty = openFiles.some(
+        (f) => f.content !== f.savedContent,
+      );
+      if (anyDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [openFiles]);
+
   const setActive = useCallback((path: string) => {
     setActivePath(path);
   }, []);
@@ -423,8 +486,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const closeActive = useCallback(() => {
-    if (activePath != null) closeFile(activePath);
-  }, [activePath, closeFile]);
+    if (activePath != null) requestCloseFile(activePath);
+  }, [activePath, requestCloseFile]);
 
   // ---------- filesystem mutations ----------
 
@@ -516,11 +579,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       reloadTree,
       openFile,
       closeFile,
+      requestCloseFile,
       setActive,
       updateContent,
       saveActive,
       saveAll,
       closeActive,
+      pendingClosePath,
+      confirmPendingClose,
+      cancelPendingClose,
       createFile,
       createDirectory,
       deletePath,
@@ -547,11 +614,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       reloadTree,
       openFile,
       closeFile,
+      requestCloseFile,
       setActive,
       updateContent,
       saveActive,
       saveAll,
       closeActive,
+      pendingClosePath,
+      confirmPendingClose,
+      cancelPendingClose,
       createFile,
       createDirectory,
       deletePath,

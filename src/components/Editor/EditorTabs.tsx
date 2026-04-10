@@ -13,7 +13,7 @@ import {
 import { Tooltip } from '@/components/ui/Tooltip';
 
 export function EditorTabs() {
-  const { openFiles, activePath, setActive, closeFile } = useWorkbench();
+  const { openFiles, activePath, setActive, requestCloseFile } = useWorkbench();
 
   if (openFiles.length === 0) {
     return (
@@ -35,7 +35,7 @@ export function EditorTabs() {
           file={file}
           active={file.path === activePath}
           onSelect={() => setActive(file.path)}
-          onClose={() => closeFile(file.path)}
+          onClose={() => requestCloseFile(file.path)}
         />
       ))}
     </div>
