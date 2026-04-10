@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { ChevronsLeft, ChevronsRight } from 'lucide-react';
 
 import { Tooltip } from '@/components/ui/Tooltip';
 
@@ -250,7 +251,7 @@ function CollapsedRail({
   label: string;
   onExpand?: () => void;
 }) {
-  const chevron = side === 'left' ? '»' : '«';
+  const ChevronIcon = side === 'left' ? ChevronsRight : ChevronsLeft;
   return (
     <div className="flex h-full w-full flex-col items-center">
       <Tooltip content={`Expand ${label.toLowerCase()} panel`} placement="bottom">
@@ -260,7 +261,7 @@ function CollapsedRail({
           className="mt-1 flex h-7 w-7 items-center justify-center rounded text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
           aria-label={`Expand ${label.toLowerCase()} panel`}
         >
-          {chevron}
+          <ChevronIcon className="h-4 w-4" aria-hidden="true" />
         </button>
       </Tooltip>
       <div

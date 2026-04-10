@@ -14,6 +14,7 @@
  */
 
 import { useState } from 'react';
+import { ChevronDown, ChevronRight, PanelRightClose } from 'lucide-react';
 
 import { useYamlParse } from '@/hooks/useYamlParse';
 import {
@@ -91,10 +92,10 @@ function PanelFrame({
           <button
             type="button"
             onClick={onCollapse}
-            className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+            className="flex h-6 w-6 items-center justify-center rounded text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
             aria-label="Collapse structure panel"
           >
-            »
+            <PanelRightClose className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </Tooltip>
       </header>
@@ -133,7 +134,11 @@ function YamlNode({
             className="inline-flex h-4 w-4 items-center justify-center text-neutral-500 hover:text-neutral-200"
             aria-label={open ? 'Collapse' : 'Expand'}
           >
-            {open ? '▾' : '▸'}
+            {open ? (
+              <ChevronDown className="h-3 w-3" aria-hidden="true" />
+            ) : (
+              <ChevronRight className="h-3 w-3" aria-hidden="true" />
+            )}
           </button>
         ) : (
           <span className="inline-block h-4 w-4" />

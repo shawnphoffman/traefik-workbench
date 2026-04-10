@@ -9,6 +9,7 @@
  * but its children can be a mix of client and server components.
  */
 
+import { AppHeader } from '@/components/Layout/AppHeader';
 import { ThreePane } from '@/components/Layout/ThreePane';
 import { FileTree } from '@/components/FileTree/FileTree';
 import { EditorTabs } from '@/components/Editor/EditorTabs';
@@ -47,31 +48,34 @@ function WorkbenchLayout() {
   } = useWorkbench();
 
   return (
-    <>
-      <ThreePane
-        leftCollapsed={leftCollapsed}
-        rightCollapsed={rightCollapsed}
-        onExpandLeft={toggleLeft}
-        onExpandRight={toggleRight}
-        leftRailLabel="Files"
-        rightRailLabel="Structure"
-        leftWidth={leftWidth}
-        rightWidth={rightWidth}
-        onResizeLeft={setLeftWidth}
-        onResizeRight={setRightWidth}
-        onResetLeft={resetLeftWidth}
-        onResetRight={resetRightWidth}
-        left={<FileTree />}
-        center={
-          <>
-            <EditorTabs />
-            <div className="min-h-0 flex-1">
-              <EditorPane />
-            </div>
-          </>
-        }
-        right={<YamlTreePanel />}
-      />
+    <div className="flex h-full min-h-0 flex-col">
+      <AppHeader />
+      <div className="min-h-0 flex-1">
+        <ThreePane
+          leftCollapsed={leftCollapsed}
+          rightCollapsed={rightCollapsed}
+          onExpandLeft={toggleLeft}
+          onExpandRight={toggleRight}
+          leftRailLabel="Files"
+          rightRailLabel="Structure"
+          leftWidth={leftWidth}
+          rightWidth={rightWidth}
+          onResizeLeft={setLeftWidth}
+          onResizeRight={setRightWidth}
+          onResetLeft={resetLeftWidth}
+          onResetRight={resetRightWidth}
+          left={<FileTree />}
+          center={
+            <>
+              <EditorTabs />
+              <div className="min-h-0 flex-1">
+                <EditorPane />
+              </div>
+            </>
+          }
+          right={<YamlTreePanel />}
+        />
+      </div>
       <ConfirmDialog
         open={pendingClosePath != null}
         title="Discard unsaved changes?"
@@ -96,6 +100,6 @@ function WorkbenchLayout() {
         onConfirm={confirmPendingClose}
         onCancel={cancelPendingClose}
       />
-    </>
+    </div>
   );
 }

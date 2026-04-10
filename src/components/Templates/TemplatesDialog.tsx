@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FileText } from 'lucide-react';
 
 import {
   Dialog,
@@ -167,7 +168,10 @@ export function TemplatesDialog({
                             : 'text-neutral-200 hover:bg-neutral-900'
                         }`}
                       >
-                        <span className="text-xs">📄</span>
+                        <FileText
+                          className="h-3.5 w-3.5 shrink-0 text-neutral-400"
+                          aria-hidden="true"
+                        />
                         <span className="truncate">{t.path}</span>
                       </button>
                     </li>

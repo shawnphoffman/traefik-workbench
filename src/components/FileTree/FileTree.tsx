@@ -7,14 +7,14 @@
  * Interaction model:
  * - Single click on a file: open in editor
  * - Single click on a directory: toggle expand/collapse
- * - Hover over a row: reveal a trash icon → delete (with confirmation)
+ * - Hover over a row: reveal rename/delete icons
  *
- * Header toolbar:
- * - `+file` — new file (target directory is the selected folder or root)
- * - `+dir`  — new folder
- * - `⧉`     — open the Templates dialog
- * - `↻`     — reload the tree
- * - `«`     — collapse the files panel
+ * Header toolbar (all Lucide icons):
+ * - FilePlus       — new file (target directory is the selected folder or root)
+ * - FolderPlus     — new folder
+ * - LayoutTemplate — open the Templates dialog
+ * - RefreshCw      — reload the tree
+ * - PanelLeftClose — collapse the files panel
  *
  * `react-arborist`'s `Tree` requires numeric `width`/`height` props, so
  * we measure the container with `useResizeObserver` and only mount the
@@ -24,6 +24,18 @@
 
 import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
 import { useCallback, useMemo, useState } from 'react';
+import {
+  FilePlus,
+  FileText,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  LayoutTemplate,
+  PanelLeftClose,
+  Pencil,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 
 import { useWorkbench } from '@/components/Workbench/WorkbenchContext';
 import { useResizeObserver } from '@/hooks/useResizeObserver';
@@ -228,35 +240,35 @@ export function FileTree() {
             label="New file"
             tooltip="New file"
           >
-            ＋
+            <FilePlus className="h-3.5 w-3.5" aria-hidden="true" />
           </HeaderButton>
           <HeaderButton
             onClick={() => openCreateDialog('directory')}
             label="New folder"
             tooltip="New folder"
           >
-            ＋／
+            <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
           </HeaderButton>
           <HeaderButton
             onClick={() => setTemplatesOpen(true)}
             label="Open templates"
             tooltip="Copy from templates…"
           >
-            ⧉
+            <LayoutTemplate className="h-3.5 w-3.5" aria-hidden="true" />
           </HeaderButton>
           <HeaderButton
             onClick={() => void reloadTree()}
             label="Reload file tree"
             tooltip="Reload"
           >
-            ↻
+            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
           </HeaderButton>
           <HeaderButton
             onClick={toggleLeft}
             label="Collapse files panel"
             tooltip="Collapse files panel"
           >
-            «
+            <PanelLeftClose className="h-3.5 w-3.5" aria-hidden="true" />
           </HeaderButton>
         </div>
       </header>
@@ -463,20 +475,29 @@ function FileTreeNode({
   onRequestDelete: (entry: TreeEntry) => void;
 }) {
   const isDirectory = node.data.kind === 'directory';
-  const icon = isDirectory ? (node.isOpen ? '📂' : '📁') : '📄';
+  const IconComponent = isDirectory
+    ? node.isOpen
+      ? FolderOpen
+      : Folder
+    : FileText;
 
   return (
     <div
       ref={dragHandle}
       style={style}
-      className={`group flex cursor-pointer items-center gap-1 truncate pr-1 ${
+      className={`group flex cursor-pointer items-center gap-1.5 truncate pr-1 ${
         node.isSelected
           ? 'bg-neutral-800 text-neutral-50'
           : 'text-neutral-200 hover:bg-neutral-900'
       }`}
       title={node.data.path}
     >
-      <span className="inline-block w-4 text-center text-xs">{icon}</span>
+      <IconComponent
+        className={`h-3.5 w-3.5 shrink-0 ${
+          isDirectory ? 'text-sky-400' : 'text-neutral-400'
+        }`}
+        aria-hidden="true"
+      />
       <span className="flex-1 truncate">{node.data.name}</span>
       <Tooltip content="Rename">
         <button
@@ -488,7 +509,7 @@ function FileTreeNode({
           className="invisible ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-sky-300 group-hover:visible"
           aria-label={`Rename ${node.data.path}`}
         >
-          ✎
+          <Pencil className="h-3 w-3" aria-hidden="true" />
         </button>
       </Tooltip>
       <Tooltip content="Delete">
@@ -501,7 +522,7 @@ function FileTreeNode({
           className="invisible ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-red-300 group-hover:visible"
           aria-label={`Delete ${node.data.path}`}
         >
-          🗑
+          <Trash2 className="h-3 w-3" aria-hidden="true" />
         </button>
       </Tooltip>
     </div>

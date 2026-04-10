@@ -20,8 +20,16 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentType,
   type ReactNode,
 } from 'react';
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  X,
+  type LucideProps,
+} from 'lucide-react';
 
 export type ToastKind = 'info' | 'success' | 'error';
 
@@ -141,13 +149,17 @@ function ToastItem({
   onDismiss: () => void;
 }) {
   const palette = KIND_PALETTE[toast.kind];
+  const Icon = palette.Icon;
   return (
     <div
       role="status"
       className={`pointer-events-auto rounded-md border ${palette.border} ${palette.bg} px-3 py-2 text-sm shadow-lg`}
     >
       <div className="flex items-start gap-2">
-        <div className={`mt-0.5 text-xs ${palette.icon}`}>{palette.glyph}</div>
+        <Icon
+          className={`mt-0.5 h-4 w-4 shrink-0 ${palette.icon}`}
+          aria-hidden="true"
+        />
         <div className="flex-1 min-w-0">
           {toast.title && (
             <div className={`font-medium ${palette.title}`}>{toast.title}</div>
@@ -157,10 +169,10 @@ function ToastItem({
         <button
           type="button"
           onClick={onDismiss}
-          className="ml-1 text-neutral-500 hover:text-neutral-200"
+          className="ml-1 flex h-4 w-4 items-center justify-center text-neutral-500 hover:text-neutral-200"
           aria-label="Dismiss"
         >
-          ×
+          <X className="h-3 w-3" aria-hidden="true" />
         </button>
       </div>
     </div>
@@ -175,7 +187,7 @@ const KIND_PALETTE: Record<
     icon: string;
     title: string;
     body: string;
-    glyph: string;
+    Icon: ComponentType<LucideProps>;
   }
 > = {
   info: {
@@ -184,7 +196,7 @@ const KIND_PALETTE: Record<
     icon: 'text-sky-400',
     title: 'text-neutral-100',
     body: 'text-neutral-300',
-    glyph: 'ℹ',
+    Icon: Info,
   },
   success: {
     border: 'border-emerald-800',
@@ -192,7 +204,7 @@ const KIND_PALETTE: Record<
     icon: 'text-emerald-400',
     title: 'text-emerald-100',
     body: 'text-emerald-200',
-    glyph: '✓',
+    Icon: CheckCircle2,
   },
   error: {
     border: 'border-red-800',
@@ -200,6 +212,6 @@ const KIND_PALETTE: Record<
     icon: 'text-red-400',
     title: 'text-red-100',
     body: 'text-red-200',
-    glyph: '⚠',
+    Icon: AlertTriangle,
   },
 };

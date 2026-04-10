@@ -24,6 +24,7 @@
 
 import dynamic from 'next/dynamic';
 import { useCallback, useState } from 'react';
+import { FileText } from 'lucide-react';
 import type { OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 
@@ -150,8 +151,11 @@ function EditorBody({
   if (!active) {
     return (
       <div className="flex h-full items-center justify-center text-neutral-500">
-        <div className="text-center text-sm">
-          Open a file from the left to start editing.
+        <div className="flex flex-col items-center gap-3 text-center text-sm">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900 text-neutral-500">
+            <FileText className="h-5 w-5" aria-hidden="true" />
+          </div>
+          <div>Open a file from the left to start editing.</div>
         </div>
       </div>
     );

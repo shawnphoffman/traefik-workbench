@@ -5,6 +5,8 @@
  * dirty indicator and close button. Clicking a tab activates it.
  */
 
+import { X } from 'lucide-react';
+
 import {
   isDirty,
   useWorkbench,
@@ -69,10 +71,13 @@ function Tab({
       }`}
     >
       <span className="max-w-[16rem] truncate">{name}</span>
-      <span className="flex w-4 items-center justify-center text-xs">
+      <span className="flex w-4 items-center justify-center">
         {dirty ? (
           <Tooltip content="Unsaved changes">
-            <span aria-label="unsaved changes">●</span>
+            <span
+              aria-label="unsaved changes"
+              className="block h-1.5 w-1.5 rounded-full bg-amber-400"
+            />
           </Tooltip>
         ) : (
           <Tooltip content="Close tab">
@@ -82,10 +87,10 @@ function Tab({
                 event.stopPropagation();
                 onClose();
               }}
-              className="rounded text-neutral-500 opacity-0 hover:bg-neutral-800 hover:text-neutral-100 group-hover:opacity-100"
+              className="flex h-4 w-4 items-center justify-center rounded text-neutral-500 opacity-0 hover:bg-neutral-800 hover:text-neutral-100 group-hover:opacity-100"
               aria-label={`Close ${name}`}
             >
-              ×
+              <X className="h-3 w-3" aria-hidden="true" />
             </button>
           </Tooltip>
         )}
@@ -98,10 +103,10 @@ function Tab({
               event.stopPropagation();
               onClose();
             }}
-            className="rounded text-neutral-500 hover:bg-neutral-800 hover:text-neutral-100"
+            className="flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:bg-neutral-800 hover:text-neutral-100"
             aria-label={`Close ${name} (has unsaved changes)`}
           >
-            ×
+            <X className="h-3 w-3" aria-hidden="true" />
           </button>
         </Tooltip>
       )}
