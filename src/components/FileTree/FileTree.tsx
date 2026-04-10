@@ -30,6 +30,7 @@ import { useResizeObserver } from '@/hooks/useResizeObserver';
 import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { InputDialog } from '@/components/ui/InputDialog';
+import { Tooltip } from '@/components/ui/Tooltip';
 import { TemplatesDialog } from '@/components/Templates/TemplatesDialog';
 import type { TreeEntry } from '@/types';
 
@@ -174,35 +175,35 @@ export function FileTree() {
           <HeaderButton
             onClick={() => openCreateDialog('file')}
             label="New file"
-            title="New file"
+            tooltip="New file"
           >
             ＋
           </HeaderButton>
           <HeaderButton
             onClick={() => openCreateDialog('directory')}
             label="New folder"
-            title="New folder"
+            tooltip="New folder"
           >
             ＋／
           </HeaderButton>
           <HeaderButton
             onClick={() => setTemplatesOpen(true)}
             label="Open templates"
-            title="Templates"
+            tooltip="Copy from templates…"
           >
             ⧉
           </HeaderButton>
           <HeaderButton
             onClick={() => void reloadTree()}
             label="Reload file tree"
-            title="Reload"
+            tooltip="Reload"
           >
             ↻
           </HeaderButton>
           <HeaderButton
             onClick={toggleLeft}
             label="Collapse files panel"
-            title="Collapse"
+            tooltip="Collapse files panel"
           >
             «
           </HeaderButton>
@@ -312,29 +313,31 @@ export function FileTree() {
 }
 
 /**
- * Compact square icon button used in the tree header toolbar.
+ * Compact square icon button used in the tree header toolbar, with a
+ * hover-delay tooltip.
  */
 function HeaderButton({
   children,
   label,
-  title,
+  tooltip,
   onClick,
 }: {
   children: React.ReactNode;
   label: string;
-  title: string;
+  tooltip: string;
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex h-6 min-w-6 items-center justify-center rounded px-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-      aria-label={label}
-      title={title}
-    >
-      {children}
-    </button>
+    <Tooltip content={tooltip}>
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex h-6 min-w-6 items-center justify-center rounded px-1 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+        aria-label={label}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -391,18 +394,19 @@ function FileTreeNode({
     >
       <span className="inline-block w-4 text-center text-xs">{icon}</span>
       <span className="flex-1 truncate">{node.data.name}</span>
-      <button
-        type="button"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRequestDelete(node.data);
-        }}
-        className="invisible ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-red-300 group-hover:visible"
-        aria-label={`Delete ${node.data.path}`}
-        title="Delete"
-      >
-        🗑
-      </button>
+      <Tooltip content="Delete">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onRequestDelete(node.data);
+          }}
+          className="invisible ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-red-300 group-hover:visible"
+          aria-label={`Delete ${node.data.path}`}
+        >
+          🗑
+        </button>
+      </Tooltip>
     </div>
   );
 }

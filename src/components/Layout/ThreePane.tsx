@@ -2,6 +2,8 @@
 
 import { useCallback, useRef, useState, type ReactNode } from 'react';
 
+import { Tooltip } from '@/components/ui/Tooltip';
+
 /**
  * Three-pane layout: left and right side panes flanking a flexible
  * center pane. Either side pane can be:
@@ -208,24 +210,29 @@ function ResizeGutter({
   }, []);
 
   return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={ariaLabel}
-      aria-valuenow={currentWidth}
-      aria-valuemin={min}
-      aria-valuemax={max}
-      tabIndex={0}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-      onDoubleClick={onReset}
-      className={`group relative cursor-col-resize select-none transition-colors ${
-        dragging ? 'bg-sky-500/80' : 'bg-neutral-800 hover:bg-sky-600/60'
-      }`}
-      title="Drag to resize · double-click to reset"
-    />
+    <Tooltip
+      content="Drag to resize · double-click to reset"
+      delay={600}
+      wrapperClassName="block h-full w-full"
+    >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={ariaLabel}
+        aria-valuenow={currentWidth}
+        aria-valuemin={min}
+        aria-valuemax={max}
+        tabIndex={0}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onDoubleClick={onReset}
+        className={`group relative h-full w-full cursor-col-resize select-none transition-colors ${
+          dragging ? 'bg-sky-500/80' : 'bg-neutral-800 hover:bg-sky-600/60'
+        }`}
+      />
+    </Tooltip>
   );
 }
 
@@ -246,15 +253,16 @@ function CollapsedRail({
   const chevron = side === 'left' ? '»' : '«';
   return (
     <div className="flex h-full w-full flex-col items-center">
-      <button
-        type="button"
-        onClick={onExpand}
-        className="mt-1 flex h-7 w-7 items-center justify-center rounded text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-        aria-label={`Expand ${label.toLowerCase()} panel`}
-        title={`Expand ${label}`}
-      >
-        {chevron}
-      </button>
+      <Tooltip content={`Expand ${label.toLowerCase()} panel`} placement="bottom">
+        <button
+          type="button"
+          onClick={onExpand}
+          className="mt-1 flex h-7 w-7 items-center justify-center rounded text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+          aria-label={`Expand ${label.toLowerCase()} panel`}
+        >
+          {chevron}
+        </button>
+      </Tooltip>
       <div
         className="mt-3 select-none text-xs uppercase tracking-wider text-neutral-500"
         style={{

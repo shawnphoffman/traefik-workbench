@@ -20,6 +20,7 @@ import {
   useActiveFile,
   useWorkbench,
 } from '@/components/Workbench/WorkbenchContext';
+import { Tooltip } from '@/components/ui/Tooltip';
 import type { YamlTreeNode } from '@/types';
 
 export function YamlTreePanel() {
@@ -86,15 +87,16 @@ function PanelFrame({
     <div className="flex h-full min-h-0 flex-col text-neutral-200">
       <header className="flex items-center justify-between border-b border-neutral-800 px-3 py-2 text-xs uppercase tracking-wide text-neutral-400">
         <span>Structure</span>
-        <button
-          type="button"
-          onClick={onCollapse}
-          className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
-          aria-label="Collapse structure panel"
-          title="Collapse"
-        >
-          »
-        </button>
+        <Tooltip content="Collapse structure panel">
+          <button
+            type="button"
+            onClick={onCollapse}
+            className="rounded px-1.5 py-0.5 text-neutral-400 hover:bg-neutral-800 hover:text-neutral-100"
+            aria-label="Collapse structure panel"
+          >
+            »
+          </button>
+        </Tooltip>
       </header>
       {children}
     </div>
