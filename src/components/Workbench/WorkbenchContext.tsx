@@ -76,6 +76,14 @@ interface WorkbenchState {
   resetLeftWidth: () => void;
   resetRightWidth: () => void;
 
+  // Saves in flight. Stable across renders; `isSaving(path)` is the
+  // read side, `savePath(path)` / `saveActive()` / `saveAll()` are the
+  // write sides. All three funnel through the same internal routine so
+  // two concurrent triggers (e.g. Cmd+S and Save-all) can't double-PUT
+  // the same file.
+  savingPaths: ReadonlySet<string>;
+  isSaving: (path: string) => boolean;
+
   // Actions
   reloadTree: () => Promise<void>;
   openFile: (path: string) => Promise<void>;
@@ -88,6 +96,12 @@ interface WorkbenchState {
   requestCloseFile: (path: string) => void;
   setActive: (path: string) => void;
   updateContent: (path: string, content: string) => void;
+  /**
+   * Save a specific open file. No-op if the path isn't open, is clean,
+   * or already has a save in flight. Throws on I/O failure (after
+   * surfacing the error on the file entry).
+   */
+  savePath: (path: string) => Promise<void>;
   saveActive: () => Promise<void>;
   saveAll: () => Promise<{ saved: number; failed: number }>;
   /** Shortcut: request close of the currently active tab. */
@@ -191,6 +205,14 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [pendingClosePath, setPendingClosePath] = useState<string | null>(
     null,
   );
+  const [savingPaths, setSavingPaths] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  // Synchronous mirror of `savingPaths`. State updates are batched, so
+  // two back-to-back `savePath(p)` calls in the same tick would both
+  // read `savingPaths.has(p) === false` and race. The ref is updated
+  // inside the setter callback and consulted by the guard below.
+  const savingPathsRef = useRef<Set<string>>(new Set());
 
   // Layout state. Initialized to defaults so SSR and the first client
   // render agree (no hydration mismatch), then rehydrated from
@@ -430,16 +452,47 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const saveActive = useCallback(async () => {
-    // Read the latest state via an updater so we don't close over stale
-    // `openFiles` / `activePath`.
-    let target: OpenFile | null = null;
+  const isSaving = useCallback(
+    (path: string) => savingPaths.has(path),
+    [savingPaths],
+  );
+
+  /**
+   * The one and only path that actually hits the API. Guards against a
+   * second concurrent save of the same file, captures the buffer
+   * contents under the snapshot pattern, and clears the saving flag in
+   * `finally` so an exception can't leave a file permanently "saving".
+   *
+   * Re-throws after recording the error on the file entry so callers
+   * (e.g. the keybind handler) can surface a toast.
+   */
+  const savePath = useCallback(async (path: string): Promise<void> => {
+    // Synchronous double-save guard.
+    if (savingPathsRef.current.has(path)) return;
+
+    // Resolve the target via a snapshot updater so we always see the
+    // latest buffer even if the caller closes over stale state.
+    let snapshot: OpenFile | null = null;
     setOpenFiles((prev) => {
-      target = prev.find((f) => f.path === activePath) ?? null;
+      snapshot = prev.find((f) => f.path === path) ?? null;
       return prev;
     });
+    // Cast through `as` because TypeScript can't track assignments
+    // made inside a setState callback across closure boundaries —
+    // it's still `OpenFile | null` by the same logic that the
+    // original `saveActive` relied on.
+    const target = snapshot as OpenFile | null;
     if (!target) return;
-    const { path, content } = target;
+    // Nothing to do for a clean buffer — skip the network round-trip.
+    if (target.content === target.savedContent) return;
+    const { content } = target;
+
+    savingPathsRef.current.add(path);
+    setSavingPaths((prev) => {
+      const next = new Set(prev);
+      next.add(path);
+      return next;
+    });
 
     try {
       await saveFile(path, content);
@@ -454,8 +507,21 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         prev.map((f) => (f.path === path ? { ...f, error: message } : f)),
       );
       throw err;
+    } finally {
+      savingPathsRef.current.delete(path);
+      setSavingPaths((prev) => {
+        if (!prev.has(path)) return prev;
+        const next = new Set(prev);
+        next.delete(path);
+        return next;
+      });
     }
-  }, [activePath]);
+  }, []);
+
+  const saveActive = useCallback(async () => {
+    if (activePath == null) return;
+    await savePath(activePath);
+  }, [activePath, savePath]);
 
   const saveAll = useCallback(async () => {
     // Snapshot the current open files so we know which ones were dirty
@@ -470,28 +536,19 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     let saved = 0;
     let failed = 0;
     for (const file of dirty) {
+      // Skip any file that another trigger is already saving — the
+      // in-flight call will update `savedContent` on its own.
+      if (savingPathsRef.current.has(file.path)) continue;
       try {
-        await saveFile(file.path, file.content);
+        await savePath(file.path);
         saved++;
-        setOpenFiles((prev) =>
-          prev.map((f) =>
-            f.path === file.path
-              ? { ...f, savedContent: file.content, error: null }
-              : f,
-          ),
-        );
-      } catch (err) {
+      } catch {
         failed++;
-        const message = errorMessage(err);
-        setOpenFiles((prev) =>
-          prev.map((f) =>
-            f.path === file.path ? { ...f, error: message } : f,
-          ),
-        );
+        // `savePath` already recorded the error on the file entry.
       }
     }
     return { saved, failed };
-  }, []);
+  }, [savePath]);
 
   const closeActive = useCallback(() => {
     if (activePath != null) requestCloseFile(activePath);
@@ -543,12 +600,27 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const renamePath = useCallback(
     async (sourcePath: string, destinationPath: string) => {
       if (sourcePath === destinationPath) return;
-      await renameEntry(sourcePath, destinationPath);
 
-      // Remap any open tabs that lived at (or under) the renamed path.
+      // Refuse to rename a file (or any file inside a directory) that
+      // currently has a save in flight — the PUT would either land on
+      // the old path and then disappear, or race the rename on the
+      // server. Callers are expected to disable the rename affordance
+      // based on `savingPaths`; this is a belt-and-braces check.
       const srcPrefix = sourcePath.endsWith('/')
         ? sourcePath
         : `${sourcePath}/`;
+      for (const p of savingPathsRef.current) {
+        if (p === sourcePath || p.startsWith(srcPrefix)) {
+          throw new Error(
+            'Cannot rename while a save is in progress. Please try again in a moment.',
+          );
+        }
+      }
+
+      await renameEntry(sourcePath, destinationPath);
+
+      // Remap any open tabs that lived at (or under) the renamed path.
+      // `srcPrefix` was already computed above for the saving-check.
       const dstPrefix = destinationPath.endsWith('/')
         ? destinationPath
         : `${destinationPath}/`;
@@ -605,6 +677,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       treeError,
       openFiles,
       activePath,
+      savingPaths,
+      isSaving,
       leftCollapsed,
       rightCollapsed,
       toggleLeft,
@@ -621,6 +695,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       requestCloseFile,
       setActive,
       updateContent,
+      savePath,
       saveActive,
       saveAll,
       closeActive,
@@ -641,6 +716,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       treeError,
       openFiles,
       activePath,
+      savingPaths,
+      isSaving,
       leftCollapsed,
       rightCollapsed,
       toggleLeft,
@@ -657,6 +734,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       requestCloseFile,
       setActive,
       updateContent,
+      savePath,
       saveActive,
       saveAll,
       closeActive,

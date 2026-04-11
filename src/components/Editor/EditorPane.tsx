@@ -23,7 +23,7 @@
  */
 
 import dynamic from 'next/dynamic';
-import { useCallback, useState, type ComponentType } from 'react';
+import { useCallback, type ComponentType } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -56,16 +56,25 @@ const MonacoEditor = dynamic(
 );
 
 export function EditorPane() {
-  const { updateContent, saveActive, saveAll, closeActive, registerEditor } =
-    useWorkbench();
+  const {
+    updateContent,
+    saveActive,
+    saveAll,
+    closeActive,
+    registerEditor,
+    savingPaths,
+  } = useWorkbench();
   const active = useActiveFile();
   const { toast } = useToast();
 
-  const [saving, setSaving] = useState<boolean>(false);
+  // Drive the status bar from the shared set — a save triggered from
+  // the AppHeader button should light up the footer too. The context
+  // action is a no-op if the file is already in flight, so we don't
+  // need to gate the handler itself.
+  const activeSaving =
+    active != null && savingPaths.has(active.path);
 
   const handleSaveActive = useCallback(async () => {
-    if (saving) return;
-    setSaving(true);
     try {
       await saveActive();
     } catch (err) {
@@ -74,32 +83,24 @@ export function EditorPane() {
         title: 'Save failed',
         message: err instanceof Error ? err.message : String(err),
       });
-    } finally {
-      setSaving(false);
     }
-  }, [saveActive, saving, toast]);
+  }, [saveActive, toast]);
 
   const handleSaveAll = useCallback(async () => {
-    if (saving) return;
-    setSaving(true);
-    try {
-      const { saved, failed } = await saveAll();
-      if (failed > 0) {
-        toast({
-          kind: 'error',
-          title: 'Save all: some files failed',
-          message: `${saved} saved, ${failed} failed`,
-        });
-      } else if (saved > 0) {
-        toast({
-          kind: 'success',
-          message: `Saved ${saved} file${saved === 1 ? '' : 's'}`,
-        });
-      }
-    } finally {
-      setSaving(false);
+    const { saved, failed } = await saveAll();
+    if (failed > 0) {
+      toast({
+        kind: 'error',
+        title: 'Save all: some files failed',
+        message: `${saved} saved, ${failed} failed`,
+      });
+    } else if (saved > 0) {
+      toast({
+        kind: 'success',
+        message: `Saved ${saved} file${saved === 1 ? '' : 's'}`,
+      });
     }
-  }, [saveAll, saving, toast]);
+  }, [saveAll, toast]);
 
   const handleMount = useCallback<OnMount>(
     (editorInstance, monacoInstance) => {
@@ -142,7 +143,7 @@ export function EditorPane() {
           onChange={handleChange}
         />
       </div>
-      <StatusBar active={active} saving={saving} />
+      <StatusBar active={active} saving={activeSaving} />
     </div>
   );
 }
