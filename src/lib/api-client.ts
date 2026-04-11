@@ -33,6 +33,13 @@ import type {
   SettingsPatch,
 } from '@/lib/settings/types';
 import type { AiActivityEntry } from '@/lib/ai/activity';
+import type {
+  TraefikEntryPoint,
+  TraefikMiddleware,
+  TraefikOverview,
+  TraefikRouter,
+  TraefikService,
+} from '@/lib/traefik/types';
 
 /**
  * Thrown for any non-2xx response. Carries the HTTP status and the
@@ -197,6 +204,116 @@ export async function updateSettings(
     body: JSON.stringify(patch),
   });
   return parseJsonOrThrow<MaskedSettings>(res);
+}
+
+// ---------- traefik ----------
+
+export interface TraefikTestResult {
+  ok: boolean;
+  /** Traefik version string when `ok`. */
+  version?: string;
+  /** Round-trip time in ms when `ok`. */
+  pingMs?: number;
+  /** Categorized error code (`AUTH_FAILED`, `TLS_ERROR`, etc.) when `!ok`. */
+  code?: string;
+  error?: string;
+  status?: number | null;
+}
+
+export async function testTraefik(): Promise<TraefikTestResult> {
+  const res = await fetch('/api/traefik/test', { method: 'POST' });
+  try {
+    const body = (await res.json()) as TraefikTestResult;
+    return body;
+  } catch {
+    return {
+      ok: false,
+      code: 'HTTP_ERROR',
+      error: `HTTP ${res.status}`,
+      status: res.status,
+    };
+  }
+}
+
+/**
+ * Thrown by `fetchTraefikX` wrappers when the proxy returns a typed
+ * `TraefikProxyError`. Components catch this to show a per-section
+ * error card without taking down the whole page.
+ */
+export class TraefikProxyClientError extends Error {
+  constructor(
+    message: string,
+    public readonly code: string,
+    public readonly status: number | null,
+  ) {
+    super(message);
+    this.name = 'TraefikProxyClientError';
+  }
+}
+
+async function getTraefikJson<T>(path: string): Promise<T> {
+  const res = await fetch(path);
+  if (res.ok) {
+    return (await res.json()) as T;
+  }
+  let code = 'HTTP_ERROR';
+  let message = `HTTP ${res.status}`;
+  let status: number | null = res.status;
+  try {
+    const body = (await res.json()) as {
+      code?: string;
+      error?: string;
+      status?: number | null;
+    };
+    if (body?.code) code = body.code;
+    if (body?.error) message = body.error;
+    if (typeof body?.status === 'number') status = body.status;
+  } catch {
+    // body wasn't JSON — keep the generic message
+  }
+  throw new TraefikProxyClientError(message, code, status);
+}
+
+export function fetchTraefikOverview(): Promise<TraefikOverview> {
+  return getTraefikJson<TraefikOverview>('/api/traefik/overview');
+}
+
+export function fetchTraefikEntryPoints(): Promise<TraefikEntryPoint[]> {
+  return getTraefikJson<TraefikEntryPoint[]>('/api/traefik/entrypoints');
+}
+
+export type TraefikHttpKind =
+  | 'routers'
+  | 'services'
+  | 'middlewares'
+  | 'serversTransports';
+
+export function fetchTraefikHttpRouters(): Promise<TraefikRouter[]> {
+  return getTraefikJson<TraefikRouter[]>('/api/traefik/http/routers');
+}
+
+export function fetchTraefikHttpServices(): Promise<TraefikService[]> {
+  return getTraefikJson<TraefikService[]>('/api/traefik/http/services');
+}
+
+export function fetchTraefikHttpMiddlewares(): Promise<TraefikMiddleware[]> {
+  return getTraefikJson<TraefikMiddleware[]>('/api/traefik/http/middlewares');
+}
+
+export function fetchTraefikTcpRouters(): Promise<TraefikRouter[]> {
+  return getTraefikJson<TraefikRouter[]>('/api/traefik/tcp/routers');
+}
+
+export function fetchTraefikTcpServices(): Promise<TraefikService[]> {
+  return getTraefikJson<TraefikService[]>('/api/traefik/tcp/services');
+}
+
+export function fetchTraefikUdpRouters(): Promise<TraefikRouter[]> {
+  return getTraefikJson<TraefikRouter[]>('/api/traefik/udp/routers');
+}
+
+export function fetchTraefikUdpServices(): Promise<TraefikService[]> {
+  return getTraefikJson<TraefikService[]>('/api/traefik/udp/services');
 }
 
 export async function testSettings(): Promise<{

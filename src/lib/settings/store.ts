@@ -22,7 +22,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { defaultSettings, parseSettings } from './schema';
-import type { Settings } from './types';
+import type { Settings, SettingSource, TraefikAuth } from './types';
 
 /**
  * Absolute directory containing the workbench's own settings (not user
@@ -155,4 +155,83 @@ function isErrno(err: unknown): err is NodeJS.ErrnoException {
     err instanceof Error &&
     typeof (err as NodeJS.ErrnoException).code === 'string'
   );
+}
+
+/**
+ * Effective Traefik connection details after env var overlay. Used by
+ * the `/api/traefik/*` proxy routes and by the `/api/settings` GET to
+ * report which fields came from where.
+ *
+ * Env vars are pure value overrides for individual fields. They never
+ * synthesize an auth `kind` — if you want basic auth, choose `basic`
+ * in Settings, then optionally provide creds via env. Limited surface
+ * area on purpose; we can add more env vars later if there's demand.
+ */
+export interface ResolvedTraefikConfig {
+  baseUrl: string | null;
+  baseUrlSource: SettingSource;
+  auth: TraefikAuth;
+  passwordSource: SettingSource;
+  insecureTls: boolean;
+  pingPath: string | null;
+  timeoutMs: number;
+}
+
+export function resolveTraefikConfig(
+  settings: Settings,
+): ResolvedTraefikConfig {
+  const fileBaseUrl = settings.traefik.baseUrl;
+  const envBaseUrl = process.env.TRAEFIK_API_URL?.trim() ?? '';
+
+  let baseUrl: string | null;
+  let baseUrlSource: SettingSource;
+  if (fileBaseUrl && fileBaseUrl.length > 0) {
+    baseUrl = fileBaseUrl;
+    baseUrlSource = 'file';
+  } else if (envBaseUrl.length > 0) {
+    baseUrl = envBaseUrl;
+    baseUrlSource = 'env';
+  } else {
+    baseUrl = null;
+    baseUrlSource = 'none';
+  }
+
+  // Auth: only the password value can come from env. Username and the
+  // auth kind always come from the settings file (or env URL alone with
+  // kind='none').
+  let auth: TraefikAuth;
+  let passwordSource: SettingSource;
+  if (settings.traefik.auth.kind === 'basic') {
+    const filePassword = settings.traefik.auth.password;
+    const envPassword = process.env.TRAEFIK_API_PASSWORD;
+    let password: string | null;
+    if (filePassword && filePassword.length > 0) {
+      password = filePassword;
+      passwordSource = 'file';
+    } else if (envPassword && envPassword.length > 0) {
+      password = envPassword;
+      passwordSource = 'env';
+    } else {
+      password = null;
+      passwordSource = 'none';
+    }
+    auth = {
+      kind: 'basic',
+      username: settings.traefik.auth.username,
+      password,
+    };
+  } else {
+    auth = { kind: 'none' };
+    passwordSource = 'none';
+  }
+
+  return {
+    baseUrl,
+    baseUrlSource,
+    auth,
+    passwordSource,
+    insecureTls: settings.traefik.insecureTls,
+    pingPath: settings.traefik.pingPath,
+    timeoutMs: settings.traefik.timeoutMs,
+  };
 }

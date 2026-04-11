@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 
-import { applyPatch, defaultSettings, parsePatch, parseSettings } from './schema';
+import {
+  applyPatch,
+  defaultSettings,
+  defaultTraefikSettings,
+  parsePatch,
+  parseSettings,
+} from './schema';
 import { maskApiKey } from './mask';
 
 describe('parseSettings', () => {
@@ -187,6 +193,135 @@ describe('applyPatch', () => {
     current.tree.ignorePatterns = ['something/'];
     const next = applyPatch(current, { ai: { enabled: true } });
     expect(next.tree.ignorePatterns).toEqual(['something/']);
+  });
+});
+
+describe('parseSettings traefik section', () => {
+  it('seeds default traefik settings when missing', () => {
+    const result = parseSettings({});
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.traefik).toEqual(defaultTraefikSettings());
+    }
+  });
+
+  it('round-trips a basic-auth traefik config', () => {
+    const result = parseSettings({
+      traefik: {
+        baseUrl: 'http://traefik:8080',
+        auth: { kind: 'basic', username: 'admin', password: 'sekret' },
+        insecureTls: true,
+        pingPath: '/ping',
+        timeoutMs: 1500,
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.traefik.baseUrl).toBe('http://traefik:8080');
+      expect(result.value.traefik.auth).toEqual({
+        kind: 'basic',
+        username: 'admin',
+        password: 'sekret',
+      });
+      expect(result.value.traefik.insecureTls).toBe(true);
+      expect(result.value.traefik.timeoutMs).toBe(1500);
+    }
+  });
+
+  it('treats null pingPath as ping disabled', () => {
+    const result = parseSettings({ traefik: { pingPath: null } });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.traefik.pingPath).toBeNull();
+  });
+
+  it('clamps timeoutMs into range', () => {
+    const low = parseSettings({ traefik: { timeoutMs: 1 } });
+    const high = parseSettings({ traefik: { timeoutMs: 999_999 } });
+    expect(low.ok && low.value.traefik.timeoutMs).toBe(250);
+    expect(high.ok && high.value.traefik.timeoutMs).toBe(60_000);
+  });
+
+  it('rejects an unknown auth kind', () => {
+    const result = parseSettings({
+      traefik: { auth: { kind: 'oauth2', token: 'x' } },
+    });
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe('parsePatch traefik section', () => {
+  it('rejects an invalid baseUrl', () => {
+    const result = parsePatch({ traefik: { baseUrl: 'not a url' } });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts null baseUrl as a clear', () => {
+    const result = parsePatch({ traefik: { baseUrl: null } });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.traefik?.baseUrl).toBeNull();
+  });
+
+  it('accepts a partial basic auth patch (password only)', () => {
+    const result = parsePatch({
+      traefik: { auth: { kind: 'basic', password: 'newpw' } },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok && result.value.traefik?.auth?.kind === 'basic') {
+      expect(result.value.traefik.auth.password).toBe('newpw');
+      expect(result.value.traefik.auth.username).toBeUndefined();
+    }
+  });
+});
+
+describe('applyPatch traefik section', () => {
+  it('merges a partial basic auth patch with the existing username', () => {
+    const current = defaultSettings();
+    current.traefik.auth = {
+      kind: 'basic',
+      username: 'admin',
+      password: 'old',
+    };
+    const next = applyPatch(current, {
+      traefik: { auth: { kind: 'basic', password: 'new' } },
+    });
+    expect(next.traefik.auth).toEqual({
+      kind: 'basic',
+      username: 'admin',
+      password: 'new',
+    });
+  });
+
+  it('switching auth kind to none drops the password', () => {
+    const current = defaultSettings();
+    current.traefik.auth = {
+      kind: 'basic',
+      username: 'admin',
+      password: 'sekret',
+    };
+    const next = applyPatch(current, { traefik: { auth: { kind: 'none' } } });
+    expect(next.traefik.auth).toEqual({ kind: 'none' });
+  });
+
+  it('clears the password with explicit null', () => {
+    const current = defaultSettings();
+    current.traefik.auth = {
+      kind: 'basic',
+      username: 'admin',
+      password: 'sekret',
+    };
+    const next = applyPatch(current, {
+      traefik: { auth: { kind: 'basic', password: null } },
+    });
+    if (next.traefik.auth.kind !== 'basic') throw new Error('expected basic');
+    expect(next.traefik.auth.password).toBeNull();
+    expect(next.traefik.auth.username).toBe('admin');
+  });
+
+  it('leaves traefik alone when patch only touches ai', () => {
+    const current = defaultSettings();
+    current.traefik.baseUrl = 'http://traefik:8080';
+    const next = applyPatch(current, { ai: { enabled: true } });
+    expect(next.traefik.baseUrl).toBe('http://traefik:8080');
   });
 });
 

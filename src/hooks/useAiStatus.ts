@@ -7,10 +7,12 @@
  * registration; the status pill uses it to render the right shape.
  *
  * Status changes (e.g. the user toggling AI in the Settings page) are
- * propagated through a window event — `traefik-workbench:ai-status-
+ * propagated through a window event — `traefik-workbench:settings-
  * changed` — that the Settings page dispatches after a successful
  * settings PATCH. This avoids polling and keeps the editor in sync
- * across tabs in the same window.
+ * across tabs in the same window. The same event also drives
+ * `useTraefikStatus`, so anything that listens to settings changes
+ * shares one signal.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -18,7 +20,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchAiStatus } from '@/lib/api-client';
 import type { AiStatusResponse } from '@/lib/ai/types';
 
-export const AI_STATUS_CHANGED_EVENT = 'traefik-workbench:ai-status-changed';
+export const SETTINGS_CHANGED_EVENT = 'traefik-workbench:settings-changed';
 
 const DEFAULT_STATUS: AiStatusResponse = {
   enabled: false,
@@ -59,20 +61,20 @@ export function useAiStatus(): UseAiStatusResult {
     const handler = () => {
       void refresh();
     };
-    window.addEventListener(AI_STATUS_CHANGED_EVENT, handler);
-    return () => window.removeEventListener(AI_STATUS_CHANGED_EVENT, handler);
+    window.addEventListener(SETTINGS_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(SETTINGS_CHANGED_EVENT, handler);
   }, [refresh]);
 
   return { status, loading, error, refresh };
 }
 
 /**
- * Fire from anywhere on the client to nudge mounted `useAiStatus`
- * consumers to re-fetch. The Settings page calls this after a
- * successful settings save so the editor's pill / providers refresh
- * without a page reload.
+ * Fire from anywhere on the client to nudge mounted settings-aware
+ * hooks (`useAiStatus`, `useTraefikStatus`) to re-fetch. The Settings
+ * page calls this after a successful settings save so the editor's
+ * pill / providers / nav icons refresh without a page reload.
  */
-export function notifyAiStatusChanged(): void {
+export function notifySettingsChanged(): void {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent(AI_STATUS_CHANGED_EVENT));
+  window.dispatchEvent(new CustomEvent(SETTINGS_CHANGED_EVENT));
 }

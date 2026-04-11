@@ -10,10 +10,41 @@
 import type { NextRequest } from 'next/server';
 
 import { jsonError } from '@/lib/api-errors';
-import { loadSettings, resolveApiKey, saveSettings } from '@/lib/settings/store';
+import {
+  loadSettings,
+  resolveApiKey,
+  resolveTraefikConfig,
+  saveSettings,
+} from '@/lib/settings/store';
 import { applyPatch, parsePatch } from '@/lib/settings/schema';
 import { maskApiKey } from '@/lib/settings/mask';
-import type { MaskedSettings } from '@/lib/settings/types';
+import type { MaskedSettings, MaskedTraefikSettings } from '@/lib/settings/types';
+
+function toMaskedTraefik(
+  settings: Awaited<ReturnType<typeof loadSettings>>,
+): MaskedTraefikSettings {
+  const resolved = resolveTraefikConfig(settings);
+  const fileAuth = settings.traefik.auth;
+  const auth: MaskedTraefikSettings['auth'] =
+    fileAuth.kind === 'basic'
+      ? {
+          kind: 'basic',
+          username: fileAuth.username,
+          passwordSet: resolved.auth.kind === 'basic' && resolved.auth.password !== null,
+          passwordSource: resolved.passwordSource,
+        }
+      : { kind: 'none' };
+
+  return {
+    baseUrl: resolved.baseUrl,
+    baseUrlSource: resolved.baseUrlSource,
+    auth,
+    insecureTls: resolved.insecureTls,
+    pingPath: resolved.pingPath,
+    timeoutMs: resolved.timeoutMs,
+    configured: resolved.baseUrl !== null,
+  };
+}
 
 function toMasked(settings: Awaited<ReturnType<typeof loadSettings>>): MaskedSettings {
   const { source } = resolveApiKey(settings);
@@ -29,6 +60,7 @@ function toMasked(settings: Awaited<ReturnType<typeof loadSettings>>): MaskedSet
     tree: {
       ignorePatterns: [...settings.tree.ignorePatterns],
     },
+    traefik: toMaskedTraefik(settings),
   };
 }
 

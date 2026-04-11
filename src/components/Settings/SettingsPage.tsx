@@ -19,10 +19,11 @@ import { useToast } from '@/components/ui/Toast';
 import { fetchAiActivity, fetchSettings, updateSettings } from '@/lib/api-client';
 import type { AiActivityEntry } from '@/lib/ai/activity';
 import type { MaskedSettings, SettingsPatch } from '@/lib/settings/types';
-import { notifyAiStatusChanged } from '@/hooks/useAiStatus';
+import { notifySettingsChanged } from '@/hooks/useAiStatus';
 
 import { AiSettingsSection } from './AiSettingsSection';
 import { RecentActivityPanel } from './RecentActivityPanel';
+import { TraefikSettingsSection } from './TraefikSettingsSection';
 import { TreeSettingsSection } from './TreeSettingsSection';
 
 export function SettingsPage() {
@@ -70,7 +71,7 @@ export function SettingsPage() {
       try {
         const next = await updateSettings(patch);
         setSettings(next);
-        notifyAiStatusChanged();
+        notifySettingsChanged();
         toast({ kind: 'success', message: 'Settings saved' });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -139,6 +140,10 @@ export function SettingsPage() {
                 settings={settings}
                 onPatch={handlePatch}
                 onAfterTest={() => void reloadActivity()}
+              />
+              <TraefikSettingsSection
+                settings={settings}
+                onPatch={handlePatch}
               />
               <TreeSettingsSection
                 settings={settings}

@@ -15,7 +15,14 @@ import {
   type AiModel,
   type Settings,
   type SettingsPatch,
+  type TraefikAuth,
+  type TraefikSettings,
 } from './types';
+
+/** Hard ceiling for `traefik.timeoutMs` so a typo can't wedge the page. */
+const TRAEFIK_TIMEOUT_MIN = 250;
+const TRAEFIK_TIMEOUT_MAX = 60_000;
+const TRAEFIK_TIMEOUT_DEFAULT = 5_000;
 
 export type ValidateResult<T> =
   | { ok: true; value: T }
@@ -50,6 +57,17 @@ export function defaultSettings(): Settings {
     tree: {
       ignorePatterns: [...DEFAULT_TREE_IGNORE_PATTERNS],
     },
+    traefik: defaultTraefikSettings(),
+  };
+}
+
+export function defaultTraefikSettings(): TraefikSettings {
+  return {
+    baseUrl: null,
+    auth: { kind: 'none' },
+    insecureTls: false,
+    pingPath: '/ping',
+    timeoutMs: TRAEFIK_TIMEOUT_DEFAULT,
   };
 }
 
@@ -124,14 +142,109 @@ export function parseSettings(raw: unknown): ValidateResult<Settings> {
     ignorePatterns = [...defaults.tree.ignorePatterns];
   }
 
+  // traefik
+  const traefikResult = parseTraefikSection(raw.traefik, defaults.traefik);
+  if (!traefikResult.ok) return traefikResult;
+
   return {
     ok: true,
     value: {
       schemaVersion: 1,
       ai: { enabled, apiKey, model, features },
       tree: { ignorePatterns },
+      traefik: traefikResult.value,
     },
   };
+}
+
+function parseTraefikSection(
+  raw: unknown,
+  defaults: TraefikSettings,
+): ValidateResult<TraefikSettings> {
+  if (raw === undefined) return { ok: true, value: { ...defaults } };
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: 'traefik must be an object' };
+  }
+
+  // baseUrl
+  let baseUrl: string | null;
+  if (raw.baseUrl === undefined || raw.baseUrl === null) {
+    baseUrl = null;
+  } else if (typeof raw.baseUrl === 'string') {
+    const trimmed = raw.baseUrl.trim();
+    baseUrl = trimmed.length > 0 ? trimmed : null;
+  } else {
+    return { ok: false, error: 'traefik.baseUrl must be a string or null' };
+  }
+
+  // auth
+  const authRaw = raw.auth;
+  let auth: TraefikAuth = { kind: 'none' };
+  if (authRaw !== undefined) {
+    if (!isPlainObject(authRaw)) {
+      return { ok: false, error: 'traefik.auth must be an object' };
+    }
+    if (authRaw.kind === 'none') {
+      auth = { kind: 'none' };
+    } else if (authRaw.kind === 'basic') {
+      const username =
+        typeof authRaw.username === 'string' ? authRaw.username : '';
+      let password: string | null;
+      if (authRaw.password === undefined || authRaw.password === null) {
+        password = null;
+      } else if (typeof authRaw.password === 'string') {
+        password = authRaw.password.length > 0 ? authRaw.password : null;
+      } else {
+        return {
+          ok: false,
+          error: 'traefik.auth.password must be a string or null',
+        };
+      }
+      auth = { kind: 'basic', username, password };
+    } else {
+      return {
+        ok: false,
+        error: "traefik.auth.kind must be 'none' or 'basic'",
+      };
+    }
+  }
+
+  // insecureTls
+  const insecureTls =
+    typeof raw.insecureTls === 'boolean' ? raw.insecureTls : defaults.insecureTls;
+
+  // pingPath
+  let pingPath: string | null;
+  if (raw.pingPath === undefined) {
+    pingPath = defaults.pingPath;
+  } else if (raw.pingPath === null) {
+    pingPath = null;
+  } else if (typeof raw.pingPath === 'string') {
+    const trimmed = raw.pingPath.trim();
+    pingPath = trimmed.length > 0 ? trimmed : null;
+  } else {
+    return { ok: false, error: 'traefik.pingPath must be a string or null' };
+  }
+
+  // timeoutMs
+  let timeoutMs = defaults.timeoutMs;
+  if (raw.timeoutMs !== undefined) {
+    if (typeof raw.timeoutMs !== 'number' || !Number.isFinite(raw.timeoutMs)) {
+      return { ok: false, error: 'traefik.timeoutMs must be a number' };
+    }
+    timeoutMs = clampTimeout(raw.timeoutMs);
+  }
+
+  return {
+    ok: true,
+    value: { baseUrl, auth, insecureTls, pingPath, timeoutMs },
+  };
+}
+
+function clampTimeout(value: number): number {
+  if (value < TRAEFIK_TIMEOUT_MIN) return TRAEFIK_TIMEOUT_MIN;
+  if (value > TRAEFIK_TIMEOUT_MAX) return TRAEFIK_TIMEOUT_MAX;
+  return Math.round(value);
 }
 
 /**
@@ -219,7 +332,112 @@ export function parsePatch(raw: unknown): ValidateResult<SettingsPatch> {
     patch.tree = treePatch;
   }
 
+  if (raw.traefik !== undefined) {
+    const traefikResult = parseTraefikPatch(raw.traefik);
+    if (!traefikResult.ok) return traefikResult;
+    patch.traefik = traefikResult.value;
+  }
+
   return { ok: true, value: patch };
+}
+
+function parseTraefikPatch(
+  raw: unknown,
+): ValidateResult<NonNullable<SettingsPatch['traefik']>> {
+  if (!isPlainObject(raw)) {
+    return { ok: false, error: 'traefik must be an object' };
+  }
+  const out: NonNullable<SettingsPatch['traefik']> = {};
+
+  if (raw.baseUrl !== undefined) {
+    if (raw.baseUrl === null) {
+      out.baseUrl = null;
+    } else if (typeof raw.baseUrl === 'string') {
+      const trimmed = raw.baseUrl.trim();
+      // Reject syntactically broken URLs early so the user sees the
+      // problem in Settings rather than as a confusing 500 from /test.
+      if (trimmed.length > 0) {
+        try {
+          new URL(trimmed);
+        } catch {
+          return {
+            ok: false,
+            error: 'traefik.baseUrl must be a valid URL (e.g. http://traefik:8080)',
+          };
+        }
+      }
+      out.baseUrl = trimmed.length > 0 ? trimmed : null;
+    } else {
+      return { ok: false, error: 'traefik.baseUrl must be a string or null' };
+    }
+  }
+
+  if (raw.auth !== undefined) {
+    if (!isPlainObject(raw.auth)) {
+      return { ok: false, error: 'traefik.auth must be an object' };
+    }
+    if (raw.auth.kind === 'none') {
+      out.auth = { kind: 'none' };
+    } else if (raw.auth.kind === 'basic') {
+      const a: { kind: 'basic'; username?: string; password?: string | null } = {
+        kind: 'basic',
+      };
+      if (raw.auth.username !== undefined) {
+        if (typeof raw.auth.username !== 'string') {
+          return {
+            ok: false,
+            error: 'traefik.auth.username must be a string',
+          };
+        }
+        a.username = raw.auth.username;
+      }
+      if (raw.auth.password !== undefined) {
+        if (raw.auth.password !== null && typeof raw.auth.password !== 'string') {
+          return {
+            ok: false,
+            error: 'traefik.auth.password must be a string or null',
+          };
+        }
+        a.password = raw.auth.password;
+      }
+      out.auth = a;
+    } else {
+      return {
+        ok: false,
+        error: "traefik.auth.kind must be 'none' or 'basic'",
+      };
+    }
+  }
+
+  if (raw.insecureTls !== undefined) {
+    if (typeof raw.insecureTls !== 'boolean') {
+      return { ok: false, error: 'traefik.insecureTls must be a boolean' };
+    }
+    out.insecureTls = raw.insecureTls;
+  }
+
+  if (raw.pingPath !== undefined) {
+    if (raw.pingPath === null) {
+      out.pingPath = null;
+    } else if (typeof raw.pingPath === 'string') {
+      const trimmed = raw.pingPath.trim();
+      out.pingPath = trimmed.length > 0 ? trimmed : null;
+    } else {
+      return {
+        ok: false,
+        error: 'traefik.pingPath must be a string or null',
+      };
+    }
+  }
+
+  if (raw.timeoutMs !== undefined) {
+    if (typeof raw.timeoutMs !== 'number' || !Number.isFinite(raw.timeoutMs)) {
+      return { ok: false, error: 'traefik.timeoutMs must be a number' };
+    }
+    out.timeoutMs = clampTimeout(raw.timeoutMs);
+  }
+
+  return { ok: true, value: out };
 }
 
 /**
@@ -227,11 +445,12 @@ export function parsePatch(raw: unknown): ValidateResult<SettingsPatch> {
  * a new object — does not mutate.
  */
 export function applyPatch(current: Settings, patch: SettingsPatch): Settings {
-  if (!patch.ai && !patch.tree) return current;
+  if (!patch.ai && !patch.tree && !patch.traefik) return current;
   const next: Settings = {
     schemaVersion: 1,
     ai: { ...current.ai, features: { ...current.ai.features } },
     tree: { ...current.tree, ignorePatterns: [...current.tree.ignorePatterns] },
+    traefik: cloneTraefik(current.traefik),
   };
   if (patch.ai) {
     if (patch.ai.enabled !== undefined) next.ai.enabled = patch.ai.enabled;
@@ -249,5 +468,42 @@ export function applyPatch(current: Settings, patch: SettingsPatch): Settings {
       next.tree.ignorePatterns = [...patch.tree.ignorePatterns];
     }
   }
+  if (patch.traefik) {
+    const t = patch.traefik;
+    if (t.baseUrl !== undefined) next.traefik.baseUrl = t.baseUrl;
+    if (t.insecureTls !== undefined) next.traefik.insecureTls = t.insecureTls;
+    if (t.pingPath !== undefined) next.traefik.pingPath = t.pingPath;
+    if (t.timeoutMs !== undefined) next.traefik.timeoutMs = t.timeoutMs;
+    if (t.auth !== undefined) {
+      if (t.auth.kind === 'none') {
+        next.traefik.auth = { kind: 'none' };
+      } else {
+        // basic — merge with existing basic auth so a partial patch
+        // (e.g. just rotating the password) doesn't drop the username.
+        const existing =
+          current.traefik.auth.kind === 'basic'
+            ? current.traefik.auth
+            : { kind: 'basic' as const, username: '', password: null };
+        next.traefik.auth = {
+          kind: 'basic',
+          username: t.auth.username !== undefined ? t.auth.username : existing.username,
+          password: t.auth.password !== undefined ? t.auth.password : existing.password,
+        };
+      }
+    }
+  }
   return next;
+}
+
+function cloneTraefik(t: TraefikSettings): TraefikSettings {
+  return {
+    baseUrl: t.baseUrl,
+    auth:
+      t.auth.kind === 'basic'
+        ? { kind: 'basic', username: t.auth.username, password: t.auth.password }
+        : { kind: 'none' },
+    insecureTls: t.insecureTls,
+    pingPath: t.pingPath,
+    timeoutMs: t.timeoutMs,
+  };
 }

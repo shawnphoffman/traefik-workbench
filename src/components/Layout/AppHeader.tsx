@@ -25,7 +25,7 @@
 import { useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Loader2, Save, Settings as SettingsIcon } from 'lucide-react';
+import { Loader2, Network, Save, Settings as SettingsIcon } from 'lucide-react';
 
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -33,10 +33,12 @@ import {
   isDirty,
   useWorkbench,
 } from '@/components/Workbench/WorkbenchContext';
+import { useTraefikStatus } from '@/hooks/useTraefikStatus';
 
 export function AppHeader() {
   const { openFiles, activePath, savingPaths, savePath } = useWorkbench();
   const { toast } = useToast();
+  const { configured: traefikConfigured } = useTraefikStatus();
 
   const dirtyCount = openFiles.filter(isDirty).length;
   const activeFile =
@@ -127,6 +129,17 @@ export function AppHeader() {
             {activeSaving ? 'Saving…' : 'Save'}
           </button>
         </Tooltip>
+        {traefikConfigured && (
+          <Tooltip content="Traefik status" placement="bottom">
+            <Link
+              href="/traefik"
+              aria-label="Open Traefik status"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 bg-neutral-900 text-neutral-300 transition-colors hover:border-sky-700 hover:bg-sky-950 hover:text-sky-100"
+            >
+              <Network className="h-3.5 w-3.5" aria-hidden="true" />
+            </Link>
+          </Tooltip>
+        )}
         <Tooltip content="Settings" placement="bottom">
           <Link
             href="/settings"
