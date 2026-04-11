@@ -74,7 +74,11 @@ export function Dialog({
     <dialog
       ref={ref}
       onClick={handleClick}
-      className={`w-full ${widthClassName} rounded-lg border border-neutral-700 bg-neutral-900 p-0 text-neutral-100 shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm open:animate-in`}
+      // `m-auto` + `inset-0` restores the browser's native centering
+      // behavior for modal `<dialog>` — Tailwind v4's preflight resets
+      // `margin: 0` on all elements, which otherwise pins the dialog
+      // to the top-left corner.
+      className={`fixed inset-0 m-auto w-full ${widthClassName} rounded-lg border border-neutral-700 bg-neutral-900 p-0 text-neutral-100 shadow-2xl backdrop:bg-black/60 backdrop:backdrop-blur-sm open:animate-in`}
     >
       {children}
     </dialog>

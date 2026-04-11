@@ -275,7 +275,7 @@ export function FileTree() {
         </div>
       </header>
 
-      <div ref={ref} className="min-h-0 flex-1 overflow-hidden">
+      <div ref={ref} className="min-h-0 flex-1 overflow-hidden pt-1">
         {treeLoading && (
           <div className="flex items-center gap-2 px-3 py-2 text-neutral-500">
             <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
@@ -492,11 +492,24 @@ function FileTreeNode({
       : Folder
     : FileText;
 
+  // react-arborist drives the leading indent via `style.paddingLeft`
+  // (= node.level * indent). We merge a small extra gutter on top of
+  // it so even root-level rows breathe away from the panel edges, and
+  // add matching right padding so the rename/delete icons don't kiss
+  // the scrollbar.
+  const arboristPaddingLeft =
+    typeof style.paddingLeft === 'number' ? style.paddingLeft : 0;
+  const mergedStyle = {
+    ...style,
+    paddingLeft: arboristPaddingLeft + 10,
+    paddingRight: 10,
+  };
+
   return (
     <div
       ref={dragHandle}
-      style={style}
-      className={`group flex cursor-pointer items-center gap-1.5 truncate pr-1 ${
+      style={mergedStyle}
+      className={`group flex cursor-pointer items-center gap-1.5 truncate ${
         node.isSelected
           ? 'bg-neutral-800 text-neutral-50'
           : 'text-neutral-200 hover:bg-neutral-900'
