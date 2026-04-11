@@ -23,8 +23,9 @@
  */
 
 import { useCallback } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { Loader2, Save, Settings as SettingsIcon, Workflow } from 'lucide-react';
+import { Loader2, Save, Settings as SettingsIcon } from 'lucide-react';
 
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -63,10 +64,19 @@ export function AppHeader() {
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-neutral-800 bg-neutral-950 px-4">
-      <div className="flex items-center gap-3">
-        <div className="flex h-8 w-8 items-center justify-center rounded-md border border-sky-900/60 bg-sky-500/10 text-sky-300">
-          <Workflow className="h-4 w-4" aria-hidden="true" />
-        </div>
+      <Link
+        href="/"
+        aria-label="Traefik Workbench home"
+        className="flex items-center gap-3 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-sky-600"
+      >
+        <Image
+          src="/logo.svg"
+          alt=""
+          width={32}
+          height={32}
+          priority
+          className="h-7 w-7"
+        />
         <div className="flex flex-col leading-tight">
           <span className="text-sm font-semibold tracking-tight text-neutral-100">
             Traefik Workbench
@@ -75,7 +85,7 @@ export function AppHeader() {
             YAML configuration editor
           </span>
         </div>
-      </div>
+      </Link>
 
       <div className="flex items-center gap-2">
         {dirtyCount > 0 && (

@@ -28,12 +28,12 @@
  */
 
 import dynamic from 'next/dynamic';
+import Image from 'next/image';
 import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
   CircleDot,
-  FileText,
   Loader2,
   Sparkles,
   Wand2,
@@ -333,11 +333,23 @@ function EditorBody({
   if (!active) {
     return (
       <div className="flex h-full items-center justify-center text-neutral-500">
-        <div className="flex flex-col items-center gap-3 text-center text-sm">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full border border-neutral-800 bg-neutral-900 text-neutral-500">
-            <FileText className="h-5 w-5" aria-hidden="true" />
+        <div className="flex flex-col items-center gap-4 text-center">
+          <Image
+            src="/logo.svg"
+            alt=""
+            width={72}
+            height={72}
+            priority
+            className="h-16 w-16 opacity-60"
+          />
+          <div className="flex flex-col gap-1">
+            <div className="text-base font-medium text-neutral-300">
+              Traefik Workbench
+            </div>
+            <div className="text-sm text-neutral-500">
+              Open a file from the left to start editing.
+            </div>
           </div>
-          <div>Open a file from the left to start editing.</div>
         </div>
       </div>
     );

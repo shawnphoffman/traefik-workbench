@@ -10,6 +10,7 @@
  * just wants to set up the API key on first install).
  */
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react';
@@ -91,9 +92,19 @@ export function SettingsPage() {
             <ArrowLeft className="h-4 w-4" aria-hidden="true" />
             Back
           </Link>
-          <span className="text-lg font-semibold tracking-tight text-neutral-100">
-            Settings
-          </span>
+          <div className="flex items-center gap-2">
+            <Image
+              src="/logo.svg"
+              alt=""
+              width={28}
+              height={28}
+              priority
+              className="h-6 w-6"
+            />
+            <span className="text-lg font-semibold tracking-tight text-neutral-100">
+              Settings
+            </span>
+          </div>
         </div>
         <button
           type="button"
