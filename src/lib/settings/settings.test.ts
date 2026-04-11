@@ -66,6 +66,31 @@ describe('parseSettings', () => {
       expect(result.value.ai.model).toBe(defaultSettings().ai.model);
     }
   });
+
+  it('seeds default ignore patterns when tree is missing', () => {
+    const result = parseSettings({});
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.tree.ignorePatterns).toEqual(
+        defaultSettings().tree.ignorePatterns,
+      );
+    }
+  });
+
+  it('reads tree.ignorePatterns from disk', () => {
+    const result = parseSettings({
+      tree: { ignorePatterns: ['.git/', '*.log', '  ', 'node_modules/'] },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Whitespace-only entries are dropped, others are trimmed.
+      expect(result.value.tree.ignorePatterns).toEqual([
+        '.git/',
+        '*.log',
+        'node_modules/',
+      ]);
+    }
+  });
 });
 
 describe('parsePatch', () => {
@@ -91,6 +116,31 @@ describe('parsePatch', () => {
 
   it('rejects an unknown model', () => {
     expect(parsePatch({ ai: { model: 'gpt-4' } }).ok).toBe(false);
+  });
+
+  it('accepts a tree.ignorePatterns array and trims/drops empties', () => {
+    const result = parsePatch({
+      tree: { ignorePatterns: ['  .git/  ', '', 'node_modules/'] },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.value.tree?.ignorePatterns).toEqual([
+        '.git/',
+        'node_modules/',
+      ]);
+    }
+  });
+
+  it('rejects non-array tree.ignorePatterns', () => {
+    expect(
+      parsePatch({ tree: { ignorePatterns: 'no' } }).ok,
+    ).toBe(false);
+  });
+
+  it('rejects non-string entries in tree.ignorePatterns', () => {
+    expect(
+      parsePatch({ tree: { ignorePatterns: ['.git/', 123] } }).ok,
+    ).toBe(false);
   });
 });
 
@@ -119,6 +169,24 @@ describe('applyPatch', () => {
       validation: true,
       format: false,
     });
+  });
+
+  it('replaces tree.ignorePatterns wholesale (not merge)', () => {
+    const current = defaultSettings();
+    current.tree.ignorePatterns = ['old/', '*.log'];
+    const next = applyPatch(current, {
+      tree: { ignorePatterns: ['new/'] },
+    });
+    expect(next.tree.ignorePatterns).toEqual(['new/']);
+    // ai untouched
+    expect(next.ai).toEqual(current.ai);
+  });
+
+  it('leaves tree alone when patch only touches ai', () => {
+    const current = defaultSettings();
+    current.tree.ignorePatterns = ['something/'];
+    const next = applyPatch(current, { ai: { enabled: true } });
+    expect(next.tree.ignorePatterns).toEqual(['something/']);
   });
 });
 

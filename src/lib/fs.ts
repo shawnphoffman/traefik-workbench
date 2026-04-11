@@ -188,6 +188,22 @@ export async function listDirectory(
 }
 
 /**
+ * Options for `listDirectoryTree`. Kept as a single object so future
+ * filters (size limits, hidden-file rules, etc.) can be added without
+ * breaking call sites.
+ */
+export interface ListDirectoryTreeOptions {
+  /** Cap on recursion depth. Default 16. */
+  maxDepth?: number;
+  /**
+   * Glob-ish ignore patterns applied per entry. Matched against both
+   * the basename and the POSIX path relative to `root`. Patterns
+   * ending in `/` only match directories. See `matchesIgnorePattern`.
+   */
+  ignorePatterns?: readonly string[];
+}
+
+/**
  * Recursively list a directory. Returns an array of top-level entries;
  * each directory entry carries a `children` array.
  *
@@ -197,9 +213,16 @@ export async function listDirectory(
 export async function listDirectoryTree(
   root: string,
   absolutePath: string,
-  maxDepth: number = 16,
+  options: ListDirectoryTreeOptions = {},
 ): Promise<TreeEntry[]> {
-  return listDirectoryTreeInner(root, absolutePath, maxDepth, 0);
+  const { maxDepth = 16, ignorePatterns = [] } = options;
+  return listDirectoryTreeInner(
+    root,
+    absolutePath,
+    maxDepth,
+    0,
+    ignorePatterns,
+  );
 }
 
 async function listDirectoryTreeInner(
@@ -207,16 +230,28 @@ async function listDirectoryTreeInner(
   absolutePath: string,
   maxDepth: number,
   depth: number,
+  ignorePatterns: readonly string[],
 ): Promise<TreeEntry[]> {
   const dirents = await readdirOrThrow(absolutePath);
   const entries: TreeEntry[] = [];
 
   for (const dirent of dirents) {
     const childAbs = path.join(absolutePath, dirent.name);
+    const relPath = toPosixRelative(root, childAbs);
+    if (
+      shouldIgnoreEntry(
+        dirent.name,
+        relPath,
+        dirent.isDirectory(),
+        ignorePatterns,
+      )
+    ) {
+      continue;
+    }
     if (dirent.isDirectory()) {
       const node: TreeEntry = {
         name: dirent.name,
-        path: toPosixRelative(root, childAbs),
+        path: relPath,
         kind: 'directory',
       };
       if (depth + 1 < maxDepth) {
@@ -225,6 +260,7 @@ async function listDirectoryTreeInner(
           childAbs,
           maxDepth,
           depth + 1,
+          ignorePatterns,
         );
       } else {
         node.children = [];
@@ -234,7 +270,7 @@ async function listDirectoryTreeInner(
       const stat = await fs.stat(childAbs);
       entries.push({
         name: dirent.name,
-        path: toPosixRelative(root, childAbs),
+        path: relPath,
         kind: 'file',
         size: stat.size,
       });
@@ -242,6 +278,84 @@ async function listDirectoryTreeInner(
   }
 
   return sortEntries(entries);
+}
+
+/**
+ * True if `name` / `relPath` is excluded by any of the user-supplied
+ * ignore patterns. See `matchesIgnorePattern` for the matcher rules.
+ */
+export function shouldIgnoreEntry(
+  name: string,
+  relPath: string,
+  isDirectory: boolean,
+  patterns: readonly string[],
+): boolean {
+  for (const raw of patterns) {
+    if (matchesIgnorePattern(name, relPath, isDirectory, raw)) return true;
+  }
+  return false;
+}
+
+/**
+ * Minimal glob matcher tailored to the ignore-pattern UX. Intentionally
+ * not a full minimatch — just enough to cover the common cases the user
+ * is likely to type into the Settings page:
+ *
+ *   .git/            → only matches directories named `.git` anywhere
+ *   node_modules     → matches files OR directories named `node_modules`
+ *   *.log            → matches any file (or directory) whose basename ends in .log
+ *   secrets/private  → matches the exact relative path
+ *   **\/draft        → matches any segment named `draft`
+ *
+ * Rules:
+ *   - A trailing `/` means "directories only" (and is then stripped).
+ *   - If the pattern contains `/`, we match against the full POSIX
+ *     relative path; otherwise we match against the basename. This
+ *     mirrors gitignore's "anywhere" vs "anchored" behavior closely
+ *     enough for the workbench's use case.
+ *   - `*` matches any run of characters except `/`. `?` matches a
+ *     single non-`/` character. No `**` support (the basename-vs-path
+ *     split makes it largely unnecessary).
+ */
+export function matchesIgnorePattern(
+  name: string,
+  relPath: string,
+  isDirectory: boolean,
+  rawPattern: string,
+): boolean {
+  const trimmed = rawPattern.trim();
+  if (trimmed.length === 0) return false;
+
+  let pattern = trimmed;
+  let directoryOnly = false;
+  if (pattern.endsWith('/')) {
+    directoryOnly = true;
+    pattern = pattern.slice(0, -1);
+  }
+  if (pattern.length === 0) return false;
+  if (directoryOnly && !isDirectory) return false;
+
+  const target = pattern.includes('/') ? relPath : name;
+  const re = globToRegExp(pattern);
+  return re.test(target);
+}
+
+function globToRegExp(pattern: string): RegExp {
+  let out = '^';
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    if (ch === '*') {
+      out += '[^/]*';
+    } else if (ch === '?') {
+      out += '[^/]';
+    } else if (/[.+^${}()|[\]\\]/.test(ch)) {
+      out += '\\' + ch;
+    } else {
+      out += ch;
+    }
+  }
+  out += '$';
+  return new RegExp(out);
 }
 
 /**

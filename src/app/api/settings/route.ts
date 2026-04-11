@@ -26,6 +26,9 @@ function toMasked(settings: Awaited<ReturnType<typeof loadSettings>>): MaskedSet
       model: settings.ai.model,
       features: settings.ai.features,
     },
+    tree: {
+      ignorePatterns: [...settings.tree.ignorePatterns],
+    },
   };
 }
 

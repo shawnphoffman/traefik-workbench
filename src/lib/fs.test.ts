@@ -14,6 +14,7 @@ import {
   listTemplateFiles,
   copyFile,
   renameEntry,
+  matchesIgnorePattern,
   FsError,
 } from './fs';
 
@@ -206,7 +207,7 @@ describe('listDirectoryTree', () => {
     await fsp.mkdir(path.join(root, 'a', 'b'));
     await fsp.writeFile(path.join(root, 'a', 'b', 'deep.yml'), 'x');
 
-    const tree = await listDirectoryTree(root, root, 1);
+    const tree = await listDirectoryTree(root, root, { maxDepth: 1 });
     expect(tree).toHaveLength(1);
     // At depth 0 we list root -> 'a'; 'a' is at depth 1 which is NOT
     // less than maxDepth=1, so its children are truncated.
@@ -216,6 +217,59 @@ describe('listDirectoryTree', () => {
       kind: 'directory',
       children: [],
     });
+  });
+
+  it('skips entries matching ignorePatterns', async () => {
+    await fsp.mkdir(path.join(root, '.git'));
+    await fsp.writeFile(path.join(root, '.git', 'HEAD'), 'x');
+    await fsp.mkdir(path.join(root, 'routers'));
+    await fsp.writeFile(path.join(root, 'routers', 'web.yml'), 'x');
+    await fsp.writeFile(path.join(root, 'router.yml'), 'x');
+    await fsp.writeFile(path.join(root, 'debug.log'), 'x');
+    await fsp.writeFile(path.join(root, '.DS_Store'), 'x');
+
+    const tree = await listDirectoryTree(root, root, {
+      ignorePatterns: ['.git/', '*.log', '.DS_Store'],
+    });
+
+    const names = tree.map((e) => e.name).sort();
+    expect(names).toEqual(['router.yml', 'routers']);
+  });
+});
+
+describe('matchesIgnorePattern', () => {
+  it('matches a basename anywhere in the tree', () => {
+    expect(matchesIgnorePattern('node_modules', 'a/b/node_modules', true, 'node_modules')).toBe(true);
+    expect(matchesIgnorePattern('foo', 'foo', false, 'node_modules')).toBe(false);
+  });
+
+  it('honors trailing slash as directories-only', () => {
+    expect(matchesIgnorePattern('.git', '.git', true, '.git/')).toBe(true);
+    // A regular file named `.git` should NOT be ignored by `.git/`.
+    expect(matchesIgnorePattern('.git', '.git', false, '.git/')).toBe(false);
+  });
+
+  it('matches against the full path when the pattern contains /', () => {
+    expect(
+      matchesIgnorePattern('private', 'secrets/private', true, 'secrets/private'),
+    ).toBe(true);
+    expect(
+      matchesIgnorePattern('private', 'public/private', true, 'secrets/private'),
+    ).toBe(false);
+  });
+
+  it('expands * and ? wildcards', () => {
+    expect(matchesIgnorePattern('build.log', 'a/build.log', false, '*.log')).toBe(true);
+    expect(matchesIgnorePattern('a.b.log', 'a.b.log', false, '*.log')).toBe(true);
+    expect(matchesIgnorePattern('a.txt', 'a.txt', false, '*.log')).toBe(false);
+    expect(matchesIgnorePattern('a1', 'a1', false, 'a?')).toBe(true);
+    expect(matchesIgnorePattern('abc', 'abc', false, 'a?')).toBe(false);
+  });
+
+  it('returns false for empty patterns', () => {
+    expect(matchesIgnorePattern('foo', 'foo', false, '')).toBe(false);
+    expect(matchesIgnorePattern('foo', 'foo', false, '   ')).toBe(false);
+    expect(matchesIgnorePattern('foo', 'foo', true, '/')).toBe(false);
   });
 });
 

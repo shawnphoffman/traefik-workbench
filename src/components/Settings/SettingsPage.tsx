@@ -22,6 +22,7 @@ import { notifyAiStatusChanged } from '@/hooks/useAiStatus';
 
 import { AiSettingsSection } from './AiSettingsSection';
 import { RecentActivityPanel } from './RecentActivityPanel';
+import { TreeSettingsSection } from './TreeSettingsSection';
 
 export function SettingsPage() {
   const { toast } = useToast();
@@ -127,6 +128,10 @@ export function SettingsPage() {
                 settings={settings}
                 onPatch={handlePatch}
                 onAfterTest={() => void reloadActivity()}
+              />
+              <TreeSettingsSection
+                settings={settings}
+                onPatch={handlePatch}
               />
               <RecentActivityPanel entries={activity} />
             </>

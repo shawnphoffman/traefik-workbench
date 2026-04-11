@@ -21,6 +21,18 @@ export type ValidateResult<T> =
   | { ok: true; value: T }
   | { ok: false; error: string };
 
+/**
+ * Default ignore patterns applied to a fresh settings file. We seed
+ * the obvious noise (`.git/`, `node_modules/`, OS metadata) so the
+ * file tree doesn't look like a junk drawer on first boot. Users can
+ * remove or extend these from the Settings page.
+ */
+export const DEFAULT_TREE_IGNORE_PATTERNS: readonly string[] = [
+  '.git/',
+  '.DS_Store',
+  'node_modules/',
+];
+
 /** Default settings used when no settings file exists yet. */
 export function defaultSettings(): Settings {
   return {
@@ -34,6 +46,9 @@ export function defaultSettings(): Settings {
         validation: true,
         format: true,
       },
+    },
+    tree: {
+      ignorePatterns: [...DEFAULT_TREE_IGNORE_PATTERNS],
     },
   };
 }
@@ -93,11 +108,28 @@ export function parseSettings(raw: unknown): ValidateResult<Settings> {
         : defaults.ai.features.format,
   };
 
+  // tree
+  const treeRaw = isPlainObject(raw.tree) ? raw.tree : {};
+  let ignorePatterns: string[];
+  if (Array.isArray(treeRaw.ignorePatterns)) {
+    // Drop non-strings and empty entries silently — unknown shapes
+    // shouldn't take down the whole settings file.
+    ignorePatterns = treeRaw.ignorePatterns
+      .filter((p): p is string => typeof p === 'string')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0);
+  } else {
+    // Missing field falls back to defaults so older settings files
+    // pick up the new noise filters automatically.
+    ignorePatterns = [...defaults.tree.ignorePatterns];
+  }
+
   return {
     ok: true,
     value: {
       schemaVersion: 1,
       ai: { enabled, apiKey, model, features },
+      tree: { ignorePatterns },
     },
   };
 }
@@ -161,6 +193,32 @@ export function parsePatch(raw: unknown): ValidateResult<SettingsPatch> {
     patch.ai = aiPatch;
   }
 
+  if (raw.tree !== undefined) {
+    if (!isPlainObject(raw.tree)) {
+      return { ok: false, error: 'tree must be an object' };
+    }
+    const treePatch: NonNullable<SettingsPatch['tree']> = {};
+    const t = raw.tree;
+    if (t.ignorePatterns !== undefined) {
+      if (!Array.isArray(t.ignorePatterns)) {
+        return { ok: false, error: 'tree.ignorePatterns must be an array' };
+      }
+      const cleaned: string[] = [];
+      for (const entry of t.ignorePatterns) {
+        if (typeof entry !== 'string') {
+          return {
+            ok: false,
+            error: 'tree.ignorePatterns must be an array of strings',
+          };
+        }
+        const trimmed = entry.trim();
+        if (trimmed.length > 0) cleaned.push(trimmed);
+      }
+      treePatch.ignorePatterns = cleaned;
+    }
+    patch.tree = treePatch;
+  }
+
   return { ok: true, value: patch };
 }
 
@@ -169,19 +227,27 @@ export function parsePatch(raw: unknown): ValidateResult<SettingsPatch> {
  * a new object — does not mutate.
  */
 export function applyPatch(current: Settings, patch: SettingsPatch): Settings {
-  if (!patch.ai) return current;
+  if (!patch.ai && !patch.tree) return current;
   const next: Settings = {
     schemaVersion: 1,
     ai: { ...current.ai, features: { ...current.ai.features } },
+    tree: { ...current.tree, ignorePatterns: [...current.tree.ignorePatterns] },
   };
-  if (patch.ai.enabled !== undefined) next.ai.enabled = patch.ai.enabled;
-  if (patch.ai.apiKey !== undefined) {
-    // null clears, string sets, omitted leaves alone (handled above)
-    next.ai.apiKey = patch.ai.apiKey;
+  if (patch.ai) {
+    if (patch.ai.enabled !== undefined) next.ai.enabled = patch.ai.enabled;
+    if (patch.ai.apiKey !== undefined) {
+      // null clears, string sets, omitted leaves alone (handled above)
+      next.ai.apiKey = patch.ai.apiKey;
+    }
+    if (patch.ai.model !== undefined) next.ai.model = patch.ai.model;
+    if (patch.ai.features) {
+      next.ai.features = { ...next.ai.features, ...patch.ai.features };
+    }
   }
-  if (patch.ai.model !== undefined) next.ai.model = patch.ai.model;
-  if (patch.ai.features) {
-    next.ai.features = { ...next.ai.features, ...patch.ai.features };
+  if (patch.tree) {
+    if (patch.tree.ignorePatterns !== undefined) {
+      next.tree.ignorePatterns = [...patch.tree.ignorePatterns];
+    }
   }
   return next;
 }

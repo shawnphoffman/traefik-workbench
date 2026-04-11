@@ -32,9 +32,19 @@ export interface AiSettings {
   features: AiFeatureFlags;
 }
 
+/**
+ * File-tree settings. Currently just a list of glob-ish ignore patterns
+ * applied server-side in `/api/tree` so users can hide noise like
+ * `.git/`, `node_modules/`, etc.
+ */
+export interface TreeSettings {
+  ignorePatterns: string[];
+}
+
 export interface Settings {
   schemaVersion: 1;
   ai: AiSettings;
+  tree: TreeSettings;
 }
 
 /** What `/api/settings` returns to the client — never includes the raw key. */
@@ -49,6 +59,7 @@ export interface MaskedSettings {
     model: AiModel;
     features: AiFeatureFlags;
   };
+  tree: TreeSettings;
 }
 
 /** Patch shape accepted by `PUT /api/settings`. */
@@ -63,5 +74,8 @@ export interface SettingsPatch {
     apiKey?: string | null;
     model?: AiModel;
     features?: Partial<AiFeatureFlags>;
+  };
+  tree?: {
+    ignorePatterns?: string[];
   };
 }
