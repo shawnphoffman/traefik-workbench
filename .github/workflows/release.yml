@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  # Escape hatch: re-run the multi-arch publish for an existing tag when the
+  # runner hangs or a transient failure kills the tag-push run. Pass the tag
+  # name (with the `v` prefix, e.g. `v0.2.0`) via workflow_dispatch input.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to build and publish (e.g. v0.2.0)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -16,6 +25,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # On workflow_dispatch we need to check out the specified tag
+          # explicitly; on tag push the default ref is already the tag.
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -30,19 +43,38 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Derives tags from the git ref:
+      # Resolve the version from either the tag push ref or the
+      # workflow_dispatch input so the same job handles both triggers.
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#v}"
+          MAJOR_MINOR="${VERSION%.*}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major_minor=$MAJOR_MINOR" >> "$GITHUB_OUTPUT"
+
+      # Derives tags from the resolved version:
       # - `v1.2.3` → `ghcr.io/<owner>/traefik-workbench:1.2.3`
       # - `v1.2.3` → `ghcr.io/<owner>/traefik-workbench:1.2` (minor)
-      # - `v1.2.3` → `ghcr.io/<owner>/traefik-workbench:latest`
+      # - `v1.2.3` → `ghcr.io/<owner>/traefik-workbench:latest` (tag push only)
+      # `latest` is skipped on workflow_dispatch because backfilling an older
+      # release must not move `latest` backwards.
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository_owner }}/traefik-workbench
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=${{ steps.version.outputs.version }}
+            type=raw,value=${{ steps.version.outputs.major_minor }}
+            type=raw,value=latest,enable=${{ github.event_name == 'push' }}
 
       - name: Build and push
         uses: docker/build-push-action@v6
