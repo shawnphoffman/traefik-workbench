@@ -15,6 +15,23 @@ import type {
   RenameEntryRequest,
   ApiError,
 } from '@/types';
+import type {
+  AiStatusResponse,
+  CompleteRequest,
+  CompleteResponse,
+  CompleteDisabledResponse,
+  ValidateRequest,
+  ValidateResponse,
+  ValidateDisabledResponse,
+  FormatRequest,
+  FormatResponse,
+  FormatDisabledResponse,
+} from '@/lib/ai/types';
+import type {
+  MaskedSettings,
+  SettingsPatch,
+} from '@/lib/settings/types';
+import type { AiActivityEntry } from '@/lib/ai/activity';
 
 /**
  * Thrown for any non-2xx response. Carries the HTTP status and the
@@ -144,4 +161,89 @@ export async function copyTemplate(
     body: JSON.stringify(body),
   });
   await parseJsonOrThrow<{ ok: true }>(res);
+}
+
+// ---------- settings ----------
+
+export async function fetchSettings(): Promise<MaskedSettings> {
+  const res = await fetch('/api/settings');
+  return parseJsonOrThrow<MaskedSettings>(res);
+}
+
+export async function updateSettings(
+  patch: SettingsPatch,
+): Promise<MaskedSettings> {
+  const res = await fetch('/api/settings', {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+  return parseJsonOrThrow<MaskedSettings>(res);
+}
+
+export async function testSettings(): Promise<{ ok: boolean; error?: string; model?: string }> {
+  const res = await fetch('/api/settings/test', { method: 'POST' });
+  if (res.ok) {
+    return parseJsonOrThrow<{ ok: true; model: string }>(res);
+  }
+  let message = `HTTP ${res.status}`;
+  try {
+    const body = (await res.json()) as { error?: string };
+    if (body?.error) message = body.error;
+  } catch {
+    // body wasn't JSON
+  }
+  return { ok: false, error: message };
+}
+
+// ---------- AI ----------
+
+export async function fetchAiStatus(): Promise<AiStatusResponse> {
+  const res = await fetch('/api/ai/status');
+  return parseJsonOrThrow<AiStatusResponse>(res);
+}
+
+export async function fetchAiActivity(): Promise<AiActivityEntry[]> {
+  const res = await fetch('/api/ai/activity');
+  const body = await parseJsonOrThrow<{ entries: AiActivityEntry[] }>(res);
+  return body.entries;
+}
+
+export async function aiComplete(
+  body: CompleteRequest,
+  signal?: AbortSignal,
+): Promise<CompleteResponse | CompleteDisabledResponse> {
+  const res = await fetch('/api/ai/complete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  return parseJsonOrThrow<CompleteResponse | CompleteDisabledResponse>(res);
+}
+
+export async function aiValidate(
+  body: ValidateRequest,
+  signal?: AbortSignal,
+): Promise<ValidateResponse | ValidateDisabledResponse> {
+  const res = await fetch('/api/ai/validate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  return parseJsonOrThrow<ValidateResponse | ValidateDisabledResponse>(res);
+}
+
+export async function aiFormat(
+  body: FormatRequest,
+  signal?: AbortSignal,
+): Promise<FormatResponse | FormatDisabledResponse> {
+  const res = await fetch('/api/ai/format', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  return parseJsonOrThrow<FormatResponse | FormatDisabledResponse>(res);
 }

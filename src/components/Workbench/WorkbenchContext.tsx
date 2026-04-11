@@ -188,6 +188,37 @@ export function useActiveFile(): OpenFile | null {
   return openFiles.find((f) => f.path === activePath) ?? null;
 }
 
+/**
+ * Returns a flat list of every YAML file path in the workspace tree.
+ * Used by the AI layer to send the workspace path catalog to Claude
+ * (so it can spot references to files that don't exist) without having
+ * to subscribe to the entire tree shape.
+ */
+export function useWorkspaceFilePaths(): string[] {
+  const { treeEntries } = useWorkbench();
+  return useMemo(() => {
+    const paths: string[] = [];
+    const walk = (entries: TreeEntry[]) => {
+      for (const entry of entries) {
+        if (entry.kind === 'file' && isYamlPath(entry.path)) {
+          paths.push(entry.path);
+        }
+        if (entry.kind === 'directory' && entry.children) {
+          walk(entry.children);
+        }
+      }
+    };
+    walk(treeEntries);
+    paths.sort();
+    return paths;
+  }, [treeEntries]);
+}
+
+function isYamlPath(path: string): boolean {
+  const lower = path.toLowerCase();
+  return lower.endsWith('.yml') || lower.endsWith('.yaml');
+}
+
 export function isDirty(file: OpenFile): boolean {
   return file.content !== file.savedContent;
 }

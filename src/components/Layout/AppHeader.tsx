@@ -23,7 +23,8 @@
  */
 
 import { useCallback } from 'react';
-import { Loader2, Save, Workflow } from 'lucide-react';
+import Link from 'next/link';
+import { Loader2, Save, Settings as SettingsIcon, Workflow } from 'lucide-react';
 
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
@@ -115,6 +116,15 @@ export function AppHeader() {
             )}
             {activeSaving ? 'Saving…' : 'Save'}
           </button>
+        </Tooltip>
+        <Tooltip content="Settings" placement="bottom">
+          <Link
+            href="/settings"
+            aria-label="Open settings"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 bg-neutral-900 text-neutral-300 transition-colors hover:border-sky-700 hover:bg-sky-950 hover:text-sky-100"
+          >
+            <SettingsIcon className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
         </Tooltip>
       </div>
     </header>

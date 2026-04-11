@@ -25,8 +25,13 @@ services:
       # change the bind mount targets below.
       DATA_DIR: /data
       TEMPLATES_DIR: /templates
+      CONFIG_DIR: /config
       # Set to "false" to let the workbench write to /templates.
       TEMPLATES_READONLY: "true"
+      # Optional: pre-seed the API key via env (Docker secret friendly).
+      # If unset and the user enters a key in the Settings page it will
+      # be persisted under CONFIG_DIR/settings.json (mode 0600).
+      # ANTHROPIC_API_KEY: ""
     volumes:
       # REQUIRED: bind-mount the directory Traefik reads its dynamic
       # configuration from. The workbench will read and write files
@@ -36,6 +41,10 @@ services:
       # OPTIONAL: a directory of reusable YAML snippets the workbench
       # can copy into /data. Defaults to a local ./templates folder.
       - ${TEMPLATES_DIR_HOST:-./templates}:/templates:ro
+      # Workbench settings (API key, model, feature toggles). Persisted
+      # across restarts. Treat the volume as a secret — it stores the
+      # API key in plaintext (file mode 0600).
+      - ${CONFIG_DIR_HOST:-./config}:/config
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
       interval: 30s

@@ -25,7 +25,7 @@
  */
 
 import dynamic from 'next/dynamic';
-import { useCallback, type ComponentType } from 'react';
+import { useCallback, useEffect, useRef, useState, type ComponentType } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
@@ -41,8 +41,17 @@ import {
   isDirty,
   useActiveFile,
   useWorkbench,
+  useWorkspaceFilePaths,
 } from '@/components/Workbench/WorkbenchContext';
 import { useToast } from '@/components/ui/Toast';
+import { useAiStatus } from '@/hooks/useAiStatus';
+import { useAiValidation } from '@/hooks/useAiValidation';
+import { useAiFormat } from '@/hooks/useAiFormat';
+import {
+  registerAiProviders,
+  type RegisteredAiProviders,
+} from '@/components/Editor/monacoAi';
+import { AiStatusPill } from '@/components/Editor/AiStatusPill';
 
 const MonacoEditor = dynamic(
   () => import('@monaco-editor/react').then((mod) => mod.default),
@@ -63,6 +72,62 @@ export function EditorPane() {
   const active = useActiveFile();
   const { toast } = useToast();
 
+  // ---------- AI integration ----------
+  const { status: aiStatus } = useAiStatus();
+  const workspacePaths = useWorkspaceFilePaths();
+
+  // Live editor + monaco namespace, captured in handleMount. State
+  // (not refs) so the effects below re-run once they become available.
+  const [editorInstance, setEditorInstance] =
+    useState<editor.IStandaloneCodeEditor | null>(null);
+  const [monacoInstance, setMonacoInstance] =
+    useState<typeof import('monaco-editor') | null>(null);
+
+  // Provider registration is keyed off the AI master enable + completion
+  // feature toggle. Re-registering on every workspace-paths change would
+  // tear down the in-flight provider; instead we keep one provider and
+  // push the latest context into it via update().
+  const providersRef = useRef<RegisteredAiProviders | null>(null);
+  const completionEnabled =
+    aiStatus.enabled && aiStatus.features.completion;
+
+  useEffect(() => {
+    if (!monacoInstance) return;
+    if (!completionEnabled) {
+      providersRef.current?.dispose();
+      providersRef.current = null;
+      return;
+    }
+    if (!providersRef.current) {
+      providersRef.current = registerAiProviders(monacoInstance);
+    }
+    providersRef.current.update({
+      activePath: active?.path ?? null,
+      workspacePaths,
+    });
+  }, [completionEnabled, monacoInstance, active?.path, workspacePaths]);
+
+  useEffect(() => {
+    return () => {
+      providersRef.current?.dispose();
+      providersRef.current = null;
+    };
+  }, []);
+
+  const validation = useAiValidation({
+    enabled: aiStatus.enabled && aiStatus.features.validation,
+    activePath: active?.path ?? null,
+    content: active?.content ?? '',
+    workspacePaths,
+    editor: editorInstance,
+    monaco: monacoInstance,
+  });
+
+  const { state: formatState, formatActive } = useAiFormat({
+    enabled: aiStatus.enabled && aiStatus.features.format,
+    editor: editorInstance,
+  });
+
   // Drive the status bar from the shared set — a save triggered from
   // the AppHeader button should light up the footer too. The context
   // action is a no-op if the file is already in flight, so we don't
@@ -82,21 +147,53 @@ export function EditorPane() {
     }
   }, [saveActive, toast]);
 
+  const handleFormatActive = useCallback(async () => {
+    if (!active) return;
+    if (!aiStatus.enabled || !aiStatus.features.format) {
+      toast({
+        kind: 'error',
+        title: 'AI format unavailable',
+        message: 'Enable AI format in Settings first.',
+      });
+      return;
+    }
+    const result = await formatActive(active.path, active.content);
+    if (!result.ok) {
+      toast({
+        kind: 'error',
+        title: 'Format failed',
+        message: result.message,
+      });
+    } else {
+      toast({ kind: 'success', message: 'Formatted with Claude' });
+    }
+  }, [active, aiStatus.enabled, aiStatus.features.format, formatActive, toast]);
+
   const handleMount = useCallback<OnMount>(
-    (editorInstance, monacoInstance) => {
-      registerEditor(editorInstance);
-      const { KeyMod, KeyCode } = monacoInstance;
+    (ed, monaco) => {
+      registerEditor(ed);
+      setEditorInstance(ed);
+      setMonacoInstance(monaco);
+
+      const { KeyMod, KeyCode } = monaco;
 
       // Cmd/Ctrl+S → save active
-      editorInstance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, () => {
+      ed.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, () => {
         void handleSaveActive();
       });
       // Cmd/Ctrl+W → close active tab
-      editorInstance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyW, () => {
+      ed.addCommand(KeyMod.CtrlCmd | KeyCode.KeyW, () => {
         closeActive();
       });
+      // Cmd/Ctrl+Shift+F → AI format active
+      ed.addCommand(
+        KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF,
+        () => {
+          void handleFormatActive();
+        },
+      );
     },
-    [registerEditor, handleSaveActive, closeActive],
+    [registerEditor, handleSaveActive, closeActive, handleFormatActive],
   );
 
   const handleChange = useCallback(
@@ -116,7 +213,18 @@ export function EditorPane() {
           onChange={handleChange}
         />
       </div>
-      <StatusBar active={active} saving={activeSaving} />
+      <StatusBar
+        active={active}
+        saving={activeSaving}
+        aiPill={
+          <AiStatusPill
+            enabled={aiStatus.enabled}
+            model={aiStatus.model}
+            validation={validation}
+            format={formatState}
+          />
+        }
+      />
     </div>
   );
 }
@@ -189,9 +297,11 @@ type StatusTone = 'idle' | 'dirty' | 'saving' | 'error' | 'saved';
 function StatusBar({
   active,
   saving,
+  aiPill,
 }: {
   active: ReturnType<typeof useActiveFile>;
   saving: boolean;
+  aiPill?: React.ReactNode;
 }) {
   let status: { label: string; tone: StatusTone };
   if (!active) {
@@ -212,7 +322,7 @@ function StatusBar({
   const Icon = tone.Icon;
 
   return (
-    <div className="flex items-center justify-between border-t border-neutral-800 bg-neutral-950 px-3 py-1 text-xs">
+    <div className="flex items-center justify-between gap-2 border-t border-neutral-800 bg-neutral-950 px-3 py-1 text-xs">
       <span className={`flex items-center gap-1.5 ${tone.className}`}>
         {Icon && (
           <Icon
@@ -222,7 +332,10 @@ function StatusBar({
         )}
         <span>{status.label}</span>
       </span>
-      <span className="truncate text-neutral-500">{active?.path ?? ''}</span>
+      <div className="flex min-w-0 items-center gap-2">
+        {aiPill}
+        <span className="truncate text-neutral-500">{active?.path ?? ''}</span>
+      </div>
     </div>
   );
 }
