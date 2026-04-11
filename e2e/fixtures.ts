@@ -46,10 +46,8 @@ export async function seedDataDir(): Promise<void> {
 }
 
 /**
- * Reset the templates directory. Usually only needed once at suite
- * startup since the server is started with `TEMPLATES_READONLY=true`
- * and the UI cannot mutate templates, but we run it per-test to make
- * the suite robust to manual meddling.
+ * Reset the templates directory. We run this per-test so the suite is
+ * robust to any test that might create templates from the UI.
  */
 export async function seedTemplatesDir(): Promise<void> {
   await fs.rm(TEMPLATES_DIR, { recursive: true, force: true });

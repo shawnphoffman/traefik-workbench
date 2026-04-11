@@ -16,7 +16,6 @@ import {
   resolveDataPath,
   resolveTemplatePath,
   TEMPLATES_DIR,
-  TEMPLATES_READONLY,
 } from '@/lib/paths';
 import { listTemplateFiles, copyFile } from '@/lib/fs';
 import { errorResponse, jsonError } from '@/lib/api-errors';
@@ -29,10 +28,7 @@ import type {
 export async function GET() {
   try {
     const entries: TemplateEntry[] = await listTemplateFiles(TEMPLATES_DIR);
-    const body: TemplatesIndexResponse = {
-      entries,
-      writable: !TEMPLATES_READONLY,
-    };
+    const body: TemplatesIndexResponse = { entries };
     return Response.json(body);
   } catch (err) {
     return errorResponse(err);

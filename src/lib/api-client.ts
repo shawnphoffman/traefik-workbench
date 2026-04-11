@@ -175,8 +175,8 @@ export async function copyTemplate(
 }
 
 /**
- * Create a new template file under TEMPLATES_DIR. Will 403 unless the
- * server was started with `TEMPLATES_READONLY=false`.
+ * Create a new template file under TEMPLATES_DIR. Returns a 5xx if the
+ * underlying volume is mounted read-only.
  */
 export async function createTemplate(
   templatePath: string,

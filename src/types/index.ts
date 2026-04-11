@@ -56,11 +56,6 @@ export interface CopyTemplateRequest {
 
 export interface TemplatesIndexResponse {
   entries: TemplateEntry[];
-  /**
-   * True when the templates directory is writable from the API. Controlled
-   * by `TEMPLATES_READONLY` (defaults to false → templates are read-only).
-   */
-  writable: boolean;
 }
 
 export interface CreateTemplateRequest {

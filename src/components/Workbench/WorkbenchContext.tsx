@@ -34,7 +34,6 @@ import {
   createTemplate,
   deleteEntry,
   fetchFile,
-  fetchTemplates,
   fetchTree,
   renameEntry,
   saveFile,
@@ -126,15 +125,9 @@ interface WorkbenchState {
   renamePath: (sourcePath: string, destinationPath: string) => Promise<void>;
   copyTemplateToData: (body: CopyTemplateRequest) => Promise<void>;
   /**
-   * Whether the templates directory is writable. Driven by the server's
-   * `TEMPLATES_READONLY` flag and refreshed on workbench mount. The UI
-   * uses this to gate "save as template" affordances. `null` means we
-   * haven't checked yet (treat as not writable for safety).
-   */
-  templatesWritable: boolean | null;
-  /**
    * Save arbitrary content as a new template under the templates root.
-   * Throws on failure (including 403 when templates are read-only).
+   * Throws on failure (e.g. when the templates volume is mounted
+   * read-only).
    */
   saveAsTemplate: (templatePath: string, content: string) => Promise<void>;
 
@@ -300,9 +293,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [treeEntries, setTreeEntries] = useState<TreeEntry[]>([]);
   const [treeLoading, setTreeLoading] = useState<boolean>(true);
   const [treeError, setTreeError] = useState<string | null>(null);
-  const [templatesWritable, setTemplatesWritable] = useState<boolean | null>(
-    null,
-  );
 
   // Hydrate openFiles + activePath from localStorage on first render so
   // navigating to /settings and back (or a hard reload) doesn't lose
@@ -498,27 +488,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void reloadTree();
   }, [reloadTree]);
-
-  // Probe whether templates are writable on mount. Failures (e.g.
-  // missing templates dir) leave `writable` as false — the UI then
-  // hides the save-as-template affordances. We deliberately don't
-  // surface a toast here: this is background metadata, not a user
-  // action.
-  useEffect(() => {
-    let cancelled = false;
-    fetchTemplates()
-      .then((response) => {
-        if (cancelled) return;
-        setTemplatesWritable(response.writable);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setTemplatesWritable(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   // ---------- file operations ----------
 
@@ -826,15 +795,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const saveAsTemplate = useCallback(
     async (templatePath: string, content: string) => {
       await createTemplate(templatePath, content);
-      // Templates list is fetched lazily by the dialog, so there's no
-      // shared cache to invalidate. We *do* re-probe writability — if
-      // an admin flipped the flag at runtime this keeps the UI honest.
-      try {
-        const response = await fetchTemplates();
-        setTemplatesWritable(response.writable);
-      } catch {
-        // Ignore — the create call already succeeded.
-      }
     },
     [],
   );
@@ -892,7 +852,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       deletePath,
       renamePath,
       copyTemplateToData,
-      templatesWritable,
       saveAsTemplate,
       registerEditor,
       scrollToLine,
@@ -932,7 +891,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       deletePath,
       renamePath,
       copyTemplateToData,
-      templatesWritable,
       saveAsTemplate,
       registerEditor,
       scrollToLine,

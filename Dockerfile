@@ -47,7 +47,6 @@ ENV HOSTNAME=0.0.0.0
 # the docker-compose file. These MUST be bind-mounted from the host.
 ENV DATA_DIR=/data
 ENV TEMPLATES_DIR=/templates
-ENV TEMPLATES_READONLY=true
 
 # Create an unprivileged user so the server doesn't run as root.
 # Matches the 1001:1001 convention used by the official Next.js

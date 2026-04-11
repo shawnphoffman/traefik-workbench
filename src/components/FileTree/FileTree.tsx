@@ -14,7 +14,7 @@
  * - FilePlus       — new file (target directory is the selected folder or root)
  * - FolderPlus     — new folder
  * - LayoutTemplate — open the Templates dialog
- * - FileCode       — new template (only when templates are writable)
+ * - FileCode       — new template
  * - RefreshCw      — reload the tree
  * - PanelLeftClose — collapse the files panel
  *
@@ -120,7 +120,6 @@ export function FileTree() {
     createDirectory,
     deletePath,
     renamePath,
-    templatesWritable,
     saveAsTemplate,
   } = useWorkbench();
 
@@ -429,15 +428,13 @@ export function FileTree() {
           >
             <LayoutTemplate className="h-3.5 w-3.5" aria-hidden="true" />
           </HeaderButton>
-          {templatesWritable && (
-            <HeaderButton
-              onClick={() => setNewTemplateOpen(true)}
-              label="New template"
-              tooltip="New template…"
-            >
-              <FileCode className="h-3.5 w-3.5" aria-hidden="true" />
-            </HeaderButton>
-          )}
+          <HeaderButton
+            onClick={() => setNewTemplateOpen(true)}
+            label="New template"
+            tooltip="New template…"
+          >
+            <FileCode className="h-3.5 w-3.5" aria-hidden="true" />
+          </HeaderButton>
           <HeaderButton
             onClick={() => void reloadTree()}
             label="Reload file tree"
@@ -500,7 +497,6 @@ export function FileTree() {
             {(props) => (
               <FileTreeNode
                 {...props}
-                templatesWritable={templatesWritable === true}
                 onRequestRename={(entry) =>
                   setRenameDialog({ open: true, entry })
                 }
@@ -797,13 +793,11 @@ function FileTreeNode({
   node,
   style,
   dragHandle,
-  templatesWritable,
   onRequestRename,
   onRequestMove,
   onRequestSaveAsTemplate,
   onRequestDelete,
 }: NodeRendererProps<TreeEntry> & {
-  templatesWritable: boolean;
   onRequestRename: (entry: TreeEntry) => void;
   onRequestMove: (entry: TreeEntry) => void;
   onRequestSaveAsTemplate: (entry: TreeEntry) => void;
@@ -910,11 +904,10 @@ function FileTreeNode({
             icon: <FolderInput className="h-3.5 w-3.5" aria-hidden="true" />,
             onSelect: () => onRequestMove(node.data),
           },
-          // "Save as template" is only meaningful for files and only
-          // when the templates directory is writable. We hide the
-          // option entirely otherwise rather than disable it, since a
-          // disabled action with no remediation hint is annoying.
-          ...(node.data.kind === 'file' && templatesWritable
+          // "Save as template" is only meaningful for files. If the
+          // templates volume is mounted read-only, the create call will
+          // fail at the API and surface as a toast.
+          ...(node.data.kind === 'file'
             ? [
                 {
                   label: 'Save as template…',

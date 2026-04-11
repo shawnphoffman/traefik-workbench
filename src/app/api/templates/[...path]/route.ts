@@ -4,18 +4,14 @@
  *   POST /api/templates/foo/bar.yml  → create a new template file
  *                                       body: { content: string }
  *
- * Gated by `TEMPLATES_READONLY`. The default is read-only — operators
- * have to opt in by setting `TEMPLATES_READONLY=false` (and ensuring the
- * templates volume is mounted read-write) before this verb succeeds.
+ * Templates are always writable from the workbench's perspective. If the
+ * underlying volume is mounted read-only, the create call will fail at
+ * the filesystem layer and surface as a 500 via `errorResponse`.
  */
 
 import type { NextRequest } from 'next/server';
 
-import {
-  isYamlFile,
-  resolveTemplatePath,
-  TEMPLATES_READONLY,
-} from '@/lib/paths';
+import { isYamlFile, resolveTemplatePath } from '@/lib/paths';
 import { createFile } from '@/lib/fs';
 import { errorResponse, jsonError } from '@/lib/api-errors';
 import type { CreateTemplateRequest } from '@/types';
@@ -23,13 +19,6 @@ import type { CreateTemplateRequest } from '@/types';
 type Context = { params: Promise<{ path: string[] }> };
 
 export async function POST(request: NextRequest, context: Context) {
-  if (TEMPLATES_READONLY) {
-    return jsonError(
-      403,
-      'Templates are read-only. Set TEMPLATES_READONLY=false to enable writes.',
-    );
-  }
-
   const { path } = await context.params;
   const resolved = resolveTemplatePath(path);
   if (resolved === null) {

@@ -24,17 +24,13 @@ export const DATA_DIR: string = path.resolve(
 
 /**
  * Absolute directory containing template YAML files.
+ *
+ * Templates are always editable from the workbench. Mount the volume
+ * read-only at the Docker level if you want to prevent writes.
  */
 export const TEMPLATES_DIR: string = path.resolve(
   /*turbopackIgnore: true*/ process.env.TEMPLATES_DIR ?? '/templates',
 );
-
-/**
- * Whether templates should be treated as read-only. Defaults to `true`.
- * Set `TEMPLATES_READONLY=false` to allow writes.
- */
-export const TEMPLATES_READONLY: boolean =
-  (process.env.TEMPLATES_READONLY ?? 'true').toLowerCase() !== 'false';
 
 /**
  * Resolve a user-supplied relative path against an absolute root, and

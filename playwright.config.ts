@@ -32,7 +32,6 @@ export default defineConfig({
     env: {
       DATA_DIR: './test-data',
       TEMPLATES_DIR: './test-templates',
-      TEMPLATES_READONLY: 'true',
     },
   },
 });

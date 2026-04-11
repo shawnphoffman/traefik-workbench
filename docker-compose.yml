@@ -26,8 +26,6 @@ services:
       DATA_DIR: /data
       TEMPLATES_DIR: /templates
       CONFIG_DIR: /config
-      # Set to "false" to let the workbench write to /templates.
-      TEMPLATES_READONLY: "true"
       # Optional: pre-seed the API key via env (Docker secret friendly).
       # If unset and the user enters a key in the Settings page it will
       # be persisted under CONFIG_DIR/settings.json (mode 0600).
@@ -40,7 +38,9 @@ services:
       - ${DATA_DIR_HOST:-./data}:/data
       # OPTIONAL: a directory of reusable YAML snippets the workbench
       # can copy into /data. Defaults to a local ./templates folder.
-      - ${TEMPLATES_DIR_HOST:-./templates}:/templates:ro
+      # Mount read-only (`:ro`) if you want to prevent the workbench
+      # from creating new templates from the UI.
+      - ${TEMPLATES_DIR_HOST:-./templates}:/templates
       # Workbench settings (API key, model, feature toggles). Persisted
       # across restarts. Treat the volume as a secret — it stores the
       # API key in plaintext (file mode 0600).
