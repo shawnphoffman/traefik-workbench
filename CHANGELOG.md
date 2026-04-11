@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/shawnphoffman/traefik-workbench/compare/v0.2.0...v0.2.1) (2026-04-11)
+
+
+### Bug Fixes
+
+* **ci:** drop package-name so release-please can match merged release PRs ([17b5d9f](https://github.com/shawnphoffman/traefik-workbench/commit/17b5d9faaa86e45dceb6278f8c579154105dc02b))
+
 ## [0.2.0](https://github.com/shawnphoffman/traefik-workbench/compare/v0.1.0...v0.2.0) (2026-04-11)
 
 
