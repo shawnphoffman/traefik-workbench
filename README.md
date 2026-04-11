@@ -104,42 +104,15 @@ For local development, copy [`.env.example`](./.env.example) to `.env.local` and
 
 ## Releases
 
-Releases are fully automated via [release-please](https://github.com/googleapis/release-please-action):
+Every push to `main` publishes a fresh multi-arch image to GHCR. There is no version bump, release PR, or GitHub Release ceremony — `.github/workflows/release.yml` builds for `linux/amd64` + `linux/arm64` and pushes these tags:
 
-1. Every push to `main` runs `.github/workflows/release-please.yml`, which either opens or updates a single "Release PR" that bumps `package.json` and regenerates `CHANGELOG.md` based on the [Conventional Commits](https://www.conventionalcommits.org/) history.
-2. The workflow enables GitHub auto-merge on that PR, so it lands on its own once CI passes.
-3. When the PR merges, release-please tags `v<version>` and publishes a GitHub Release with the generated changelog.
-4. The tag push triggers `.github/workflows/release.yml`, which builds and pushes the multi-arch image to `ghcr.io/<owner>/traefik-workbench:<version>`, `:<major>.<minor>`, and `:latest`.
+- `ghcr.io/<owner>/traefik-workbench:latest` — rolling tip of `main`
+- `ghcr.io/<owner>/traefik-workbench:main` — alternate alias for the same target
+- `ghcr.io/<owner>/traefik-workbench:sha-<short>` — immutable pin for an exact commit (use this in production if you want reproducible deploys)
 
-Commit messages must follow Conventional Commits for this to work:
+If a runner hangs or the registry hiccups, re-run the workflow from the Actions tab — `release.yml` also exposes a `workflow_dispatch` trigger that rebuilds and republishes the current `main`.
 
-- `feat: …` → minor bump
-- `fix: …` → patch bump
-- `feat!: …` or `BREAKING CHANGE:` footer → (minor while `< 1.0.0`, major after)
-- `docs: …`, `refactor: …`, `perf: …`, `revert: …` → patch bump, appear in the changelog
-- `ci: …`, `build: …`, `test: …`, `chore: …`, `style: …` → hidden from the changelog, no bump
-
-### One-time repo setup
-
-Three knobs have to be flipped by hand because GitHub's security model won't let a workflow configure them on its own:
-
-1. **Create a fine-grained Personal Access Token** scoped to this repository with these permissions:
-   - `Contents`: Read and write
-   - `Pull requests`: Read and write
-   - `Workflows`: Read and write
-
-   Store it as a repository secret named `RELEASE_PLEASE_TOKEN`. A PAT (or GitHub App token) is required because events triggered by the default `GITHUB_TOKEN` do not cascade into further workflow runs — without it, the Release PR's CI would never run and the tag push would never trigger the Docker publish.
-
-2. **Enable "Allow auto-merge"** under `Settings → General → Pull Requests`. This is what lets the workflow call `gh pr merge --auto` on the Release PR.
-
-3. **Protect `main` with required status checks.** GitHub will not let `gh pr merge --auto` arm a PR unless the target branch has a protection rule requiring at least one status check (or a review). Under `Settings → Branches → Add rule` for `main`, enable **Require status checks to pass before merging** and select these checks from `ci.yml`:
-   - `Lint, type-check, unit tests`
-   - `Playwright E2E`
-   - `Docker image builds`
-
-   Leave "Require a pull request before merging" off (the Release PR is the only thing that ever merges to `main` anyway, and requiring reviews would stall auto-merge).
-
-Once those are in place the whole pipeline is hands-off: push `feat:` / `fix:` commits, and versions, changelogs, GitHub Releases, and Docker images flow out the other end on their own.
+`CHANGELOG.md` is a historical artifact from an earlier release-please experiment and is no longer maintained automatically.
 
 ## License
 
