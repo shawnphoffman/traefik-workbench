@@ -5,7 +5,7 @@ A lightweight, self-hosted, web-based YAML editor with a 3-pane interface for ma
 ## Features
 
 - **Left pane:** file tree browser for the mounted data directory — create, rename, delete files and folders in place
-- **Center pane:** Monaco editor with YAML syntax highlighting, multi-file tabs, dirty indicators, Cmd/Ctrl+S to save, Cmd/Ctrl+Shift+S to save all, Cmd/Ctrl+W to close
+- **Center pane:** Monaco editor with YAML syntax highlighting, multi-file tabs, dirty indicators, Cmd/Ctrl+S to save the active file, Cmd/Ctrl+W to close
 - **Right pane:** live YAML structure outline — click any node to jump the editor to that line
 - **Templates:** copy curated YAML snippets from a separate templates directory into your config
 - **Unsaved-changes guard:** confirmation on close, plus a browser `beforeunload` prompt

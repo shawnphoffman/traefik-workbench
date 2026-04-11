@@ -10,10 +10,12 @@
  * Editor bridge:
  * - On mount, we register the editor instance with the Workbench
  *   context so the YAML tree panel can scroll to clicked nodes.
- * - We bind Cmd/Ctrl+S → saveActive(), Cmd/Ctrl+Shift+S → saveAll(),
- *   and Cmd/Ctrl+W → closeActive(). Monaco intercepts these only when
- *   the editor is focused; outside the editor the browser gets them
- *   first (which is unavoidable for Cmd+W without an Electron shell).
+ * - We bind Cmd/Ctrl+S → saveActive() and Cmd/Ctrl+W → closeActive().
+ *   Monaco intercepts these only when the editor is focused; outside
+ *   the editor the browser gets them first (which is unavoidable for
+ *   Cmd+W without an Electron shell). There's intentionally no save-
+ *   all shortcut — saving unrelated buffers in a single keystroke is
+ *   an anti-pattern that hides per-file failures.
  * - We use the `path` prop so Monaco maintains a separate model per
  *   open file — switching tabs preserves undo history per file.
  *
@@ -56,14 +58,8 @@ const MonacoEditor = dynamic(
 );
 
 export function EditorPane() {
-  const {
-    updateContent,
-    saveActive,
-    saveAll,
-    closeActive,
-    registerEditor,
-    savingPaths,
-  } = useWorkbench();
+  const { updateContent, saveActive, closeActive, registerEditor, savingPaths } =
+    useWorkbench();
   const active = useActiveFile();
   const { toast } = useToast();
 
@@ -86,22 +82,6 @@ export function EditorPane() {
     }
   }, [saveActive, toast]);
 
-  const handleSaveAll = useCallback(async () => {
-    const { saved, failed } = await saveAll();
-    if (failed > 0) {
-      toast({
-        kind: 'error',
-        title: 'Save all: some files failed',
-        message: `${saved} saved, ${failed} failed`,
-      });
-    } else if (saved > 0) {
-      toast({
-        kind: 'success',
-        message: `Saved ${saved} file${saved === 1 ? '' : 's'}`,
-      });
-    }
-  }, [saveAll, toast]);
-
   const handleMount = useCallback<OnMount>(
     (editorInstance, monacoInstance) => {
       registerEditor(editorInstance);
@@ -111,19 +91,12 @@ export function EditorPane() {
       editorInstance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, () => {
         void handleSaveActive();
       });
-      // Cmd/Ctrl+Shift+S → save all
-      editorInstance.addCommand(
-        KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyS,
-        () => {
-          void handleSaveAll();
-        },
-      );
       // Cmd/Ctrl+W → close active tab
       editorInstance.addCommand(KeyMod.CtrlCmd | KeyCode.KeyW, () => {
         closeActive();
       });
     },
-    [registerEditor, handleSaveActive, handleSaveAll, closeActive],
+    [registerEditor, handleSaveActive, closeActive],
   );
 
   const handleChange = useCallback(

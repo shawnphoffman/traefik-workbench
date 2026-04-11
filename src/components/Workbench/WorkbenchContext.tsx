@@ -77,10 +77,10 @@ interface WorkbenchState {
   resetRightWidth: () => void;
 
   // Saves in flight. Stable across renders; `isSaving(path)` is the
-  // read side, `savePath(path)` / `saveActive()` / `saveAll()` are the
-  // write sides. All three funnel through the same internal routine so
-  // two concurrent triggers (e.g. Cmd+S and Save-all) can't double-PUT
-  // the same file.
+  // read side, `savePath(path)` / `saveActive()` are the write sides.
+  // Both funnel through the same internal routine so two concurrent
+  // triggers of the same file (e.g. Cmd+S racing a button click)
+  // can't double-PUT.
   savingPaths: ReadonlySet<string>;
   isSaving: (path: string) => boolean;
 
@@ -103,7 +103,6 @@ interface WorkbenchState {
    */
   savePath: (path: string) => Promise<void>;
   saveActive: () => Promise<void>;
-  saveAll: () => Promise<{ saved: number; failed: number }>;
   /** Shortcut: request close of the currently active tab. */
   closeActive: () => void;
 
@@ -523,33 +522,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     await savePath(activePath);
   }, [activePath, savePath]);
 
-  const saveAll = useCallback(async () => {
-    // Snapshot the current open files so we know which ones were dirty
-    // at the moment of the request.
-    let snapshot: OpenFile[] = [];
-    setOpenFiles((prev) => {
-      snapshot = prev;
-      return prev;
-    });
-    const dirty = snapshot.filter((f) => f.content !== f.savedContent);
-
-    let saved = 0;
-    let failed = 0;
-    for (const file of dirty) {
-      // Skip any file that another trigger is already saving — the
-      // in-flight call will update `savedContent` on its own.
-      if (savingPathsRef.current.has(file.path)) continue;
-      try {
-        await savePath(file.path);
-        saved++;
-      } catch {
-        failed++;
-        // `savePath` already recorded the error on the file entry.
-      }
-    }
-    return { saved, failed };
-  }, [savePath]);
-
   const closeActive = useCallback(() => {
     if (activePath != null) requestCloseFile(activePath);
   }, [activePath, requestCloseFile]);
@@ -697,7 +669,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       updateContent,
       savePath,
       saveActive,
-      saveAll,
       closeActive,
       pendingClosePath,
       confirmPendingClose,
@@ -736,7 +707,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       updateContent,
       savePath,
       saveActive,
-      saveAll,
       closeActive,
       pendingClosePath,
       confirmPendingClose,
