@@ -10,7 +10,7 @@
 # See README.md for deploying behind Traefik itself (router labels).
 services:
   workbench:
-    image: ghcr.io/shoffman/traefik-workbench:latest
+    image: ghcr.io/shawnphoffman/traefik-workbench:latest
     # Uncomment the build block to build from source locally instead
     # of pulling the published image:
     # build:

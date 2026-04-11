@@ -38,7 +38,7 @@ docker compose up -d
 
 Then open <http://localhost:3000>.
 
-By default the compose file pulls the published image from `ghcr.io/shoffman/traefik-workbench:latest`. To build from source instead, uncomment the `build:` block in [`docker-compose.yml`](./docker-compose.yml).
+By default the compose file pulls the published image from `ghcr.io/shawnphoffman/traefik-workbench:latest`. To build from source instead, uncomment the `build:` block in [`docker-compose.yml`](./docker-compose.yml).
 
 ### Environment variables
 
