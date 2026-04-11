@@ -23,8 +23,15 @@
  */
 
 import dynamic from 'next/dynamic';
-import { useCallback, useState } from 'react';
-import { FileText } from 'lucide-react';
+import { useCallback, useState, type ComponentType } from 'react';
+import {
+  AlertCircle,
+  CheckCircle2,
+  CircleDot,
+  FileText,
+  Loader2,
+  type LucideProps,
+} from 'lucide-react';
 import type { OnMount } from '@monaco-editor/react';
 import type { editor } from 'monaco-editor';
 
@@ -40,7 +47,8 @@ const MonacoEditor = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full items-center justify-center text-neutral-500">
+      <div className="flex h-full items-center justify-center gap-2 text-sm text-neutral-500">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
         Loading editor…
       </div>
     ),
@@ -163,7 +171,8 @@ function EditorBody({
 
   if (active.loading) {
     return (
-      <div className="flex h-full items-center justify-center text-neutral-500">
+      <div className="flex h-full items-center justify-center gap-2 text-sm text-neutral-500">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
         Loading {basename(active.path)}…
       </div>
     );
@@ -172,9 +181,15 @@ function EditorBody({
   if (active.error) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <div className="max-w-md rounded border border-red-900 bg-red-950/40 p-4 text-red-200">
-          <div className="font-medium">Failed to open file</div>
-          <div className="mt-1 text-sm text-red-300">{active.error}</div>
+        <div className="flex max-w-md items-start gap-3 rounded-md border border-red-900 bg-red-950/40 p-4 text-red-200">
+          <AlertCircle
+            className="mt-0.5 h-4 w-4 shrink-0 text-red-400"
+            aria-hidden="true"
+          />
+          <div>
+            <div className="font-medium">Failed to open file</div>
+            <div className="mt-1 text-sm text-red-300">{active.error}</div>
+          </div>
         </div>
       </div>
     );
@@ -195,6 +210,8 @@ function EditorBody({
   );
 }
 
+type StatusTone = 'idle' | 'dirty' | 'saving' | 'error' | 'saved';
+
 function StatusBar({
   active,
   saving,
@@ -202,14 +219,11 @@ function StatusBar({
   active: ReturnType<typeof useActiveFile>;
   saving: boolean;
 }) {
-  let status: {
-    label: string;
-    tone: 'idle' | 'dirty' | 'saving' | 'error';
-  };
+  let status: { label: string; tone: StatusTone };
   if (!active) {
     status = { label: 'No file', tone: 'idle' };
   } else if (active.loading) {
-    status = { label: 'Loading…', tone: 'idle' };
+    status = { label: 'Loading', tone: 'saving' };
   } else if (active.error) {
     status = { label: `Error: ${active.error}`, tone: 'error' };
   } else if (saving) {
@@ -217,23 +231,46 @@ function StatusBar({
   } else if (isDirty(active)) {
     status = { label: 'Modified', tone: 'dirty' };
   } else {
-    status = { label: 'Saved', tone: 'idle' };
+    status = { label: 'Saved', tone: 'saved' };
   }
 
-  const toneClass = {
-    idle: 'text-neutral-400',
-    dirty: 'text-amber-300',
-    saving: 'text-sky-300',
-    error: 'text-red-300',
-  }[status.tone];
+  const tone = STATUS_TONES[status.tone];
+  const Icon = tone.Icon;
 
   return (
     <div className="flex items-center justify-between border-t border-neutral-800 bg-neutral-950 px-3 py-1 text-xs">
-      <span className={toneClass}>{status.label}</span>
+      <span className={`flex items-center gap-1.5 ${tone.className}`}>
+        {Icon && (
+          <Icon
+            className={`h-3 w-3 ${tone.animate ?? ''}`}
+            aria-hidden="true"
+          />
+        )}
+        <span>{status.label}</span>
+      </span>
       <span className="truncate text-neutral-500">{active?.path ?? ''}</span>
     </div>
   );
 }
+
+const STATUS_TONES: Record<
+  StatusTone,
+  {
+    className: string;
+    Icon?: ComponentType<LucideProps>;
+    animate?: string;
+  }
+> = {
+  idle: { className: 'text-neutral-400' },
+  saved: { className: 'text-emerald-400', Icon: CheckCircle2 },
+  dirty: { className: 'text-amber-300', Icon: CircleDot },
+  saving: {
+    className: 'text-sky-300',
+    Icon: Loader2,
+    animate: 'animate-spin',
+  },
+  error: { className: 'text-red-300', Icon: AlertCircle },
+};
 
 const MONACO_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
   minimap: { enabled: false },

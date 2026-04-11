@@ -7,6 +7,7 @@
  */
 
 import { useState, type ReactNode } from 'react';
+import { AlertTriangle } from 'lucide-react';
 
 import {
   Dialog,
@@ -54,9 +55,16 @@ export function ConfirmDialog({
   const ConfirmButton =
     variant === 'danger' ? DialogDangerButton : DialogPrimaryButton;
 
+  const headerIcon =
+    variant === 'danger' ? (
+      <div className="flex h-8 w-8 items-center justify-center rounded-full border border-amber-800/60 bg-amber-500/10 text-amber-300">
+        <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+      </div>
+    ) : undefined;
+
   return (
     <Dialog open={open} onClose={onCancel}>
-      <DialogHeader title={title} />
+      <DialogHeader title={title} icon={headerIcon} />
       {description && (
         <DialogBody>
           <div className="text-sm text-neutral-300">{description}</div>

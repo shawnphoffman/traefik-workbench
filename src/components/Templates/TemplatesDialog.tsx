@@ -16,7 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileText } from 'lucide-react';
+import { AlertCircle, FileText, Loader2 } from 'lucide-react';
 
 import {
   Dialog,
@@ -141,13 +141,21 @@ export function TemplatesDialog({
             </div>
             <div className="flex-1 overflow-auto">
               {loading && (
-                <div className="px-3 py-2 text-sm text-neutral-500">
-                  Loading…
+                <div className="flex items-center gap-2 px-3 py-2 text-sm text-neutral-500">
+                  <Loader2
+                    className="h-3.5 w-3.5 animate-spin"
+                    aria-hidden="true"
+                  />
+                  <span>Loading…</span>
                 </div>
               )}
               {loadError && !loading && (
-                <div className="px-3 py-2 text-sm text-red-400">
-                  {loadError}
+                <div className="flex items-start gap-2 px-3 py-2 text-sm text-red-400">
+                  <AlertCircle
+                    className="mt-0.5 h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{loadError}</span>
                 </div>
               )}
               {!loading && !loadError && templates.length === 0 && (

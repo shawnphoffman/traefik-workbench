@@ -25,12 +25,14 @@
 import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
 import { useCallback, useMemo, useState } from 'react';
 import {
+  AlertCircle,
   FilePlus,
   FileText,
   Folder,
   FolderOpen,
   FolderPlus,
   LayoutTemplate,
+  Loader2,
   PanelLeftClose,
   Pencil,
   RefreshCw,
@@ -275,13 +277,22 @@ export function FileTree() {
 
       <div ref={ref} className="min-h-0 flex-1 overflow-hidden">
         {treeLoading && (
-          <div className="px-3 py-2 text-neutral-500">Loading…</div>
+          <div className="flex items-center gap-2 px-3 py-2 text-neutral-500">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+            <span>Loading…</span>
+          </div>
         )}
         {treeError && !treeLoading && (
-          <div className="px-3 py-2 text-red-400">
-            <div>Failed to load tree:</div>
-            <div className="mt-1 break-words text-xs text-red-300">
-              {treeError}
+          <div className="flex items-start gap-2 px-3 py-2 text-red-400">
+            <AlertCircle
+              className="mt-0.5 h-3.5 w-3.5 shrink-0"
+              aria-hidden="true"
+            />
+            <div>
+              <div>Failed to load tree:</div>
+              <div className="mt-1 break-words text-xs text-red-300">
+                {treeError}
+              </div>
             </div>
           </div>
         )}
