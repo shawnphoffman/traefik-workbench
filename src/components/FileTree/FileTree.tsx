@@ -108,6 +108,11 @@ export function FileTree() {
     (node: NodeApi<TreeEntry>) => {
       setSelectedEntry(node.data);
       if (node.data.kind === 'file') {
+        // Only YAML files are editable. Non-YAML rows are rendered as
+        // disabled (see FileTreeNode), but react-arborist will still
+        // fire `onActivate` on keyboard Enter, so we belt-and-brace
+        // here as well.
+        if (!isYamlPath(node.data.path)) return;
         void openFile(node.data.path);
       } else {
         node.toggle();
@@ -447,6 +452,15 @@ function HeaderButton({
 }
 
 /**
+ * True if the given path looks like a YAML file. Mirrors `isYamlFile`
+ * in `lib/paths.ts`, but kept local so this client component doesn't
+ * pull in the server paths module.
+ */
+function isYamlPath(p: string): boolean {
+  return /\.ya?ml$/i.test(p);
+}
+
+/**
  * Validate a path segment used as a new file/folder name. Returns an
  * error message or null if the value is acceptable.
  */
@@ -486,6 +500,11 @@ function FileTreeNode({
   onRequestDelete: (entry: TreeEntry) => void;
 }) {
   const isDirectory = node.data.kind === 'directory';
+  // Non-YAML files can't be opened in the editor (the editor only
+  // understands YAML, and "view as text" would just be a footgun for
+  // editing binaries). Render them dimmed and non-interactive so the
+  // user sees what's in the directory without being able to click in.
+  const isUneditableFile = !isDirectory && !isYamlPath(node.data.path);
   const IconComponent = isDirectory
     ? node.isOpen
       ? FolderOpen
@@ -505,20 +524,44 @@ function FileTreeNode({
     paddingRight: 10,
   };
 
+  // react-arborist invokes the row's own click handler, which calls
+  // onActivate for any node. We swallow clicks on disabled rows in
+  // the capture phase so the tree doesn't even change selection —
+  // matches the visual "this row is inert" affordance.
+  const swallowIfDisabled = isUneditableFile
+    ? (e: React.SyntheticEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    : undefined;
+
   return (
     <div
       ref={dragHandle}
       style={mergedStyle}
-      className={`group flex cursor-pointer items-center gap-1.5 truncate ${
-        node.isSelected
-          ? 'bg-neutral-800 text-neutral-50'
-          : 'text-neutral-200 hover:bg-neutral-900'
+      onClickCapture={swallowIfDisabled}
+      onDoubleClickCapture={swallowIfDisabled}
+      className={`group flex items-center gap-1.5 truncate ${
+        isUneditableFile
+          ? 'cursor-not-allowed text-neutral-500 opacity-60'
+          : node.isSelected
+            ? 'cursor-pointer bg-neutral-800 text-neutral-50'
+            : 'cursor-pointer text-neutral-200 hover:bg-neutral-900'
       }`}
-      title={node.data.path}
+      title={
+        isUneditableFile
+          ? `${node.data.path} — only .yml / .yaml files can be opened`
+          : node.data.path
+      }
+      aria-disabled={isUneditableFile || undefined}
     >
       <IconComponent
         className={`h-3.5 w-3.5 shrink-0 ${
-          isDirectory ? 'text-sky-400' : 'text-neutral-400'
+          isDirectory
+            ? 'text-sky-400'
+            : isUneditableFile
+              ? 'text-neutral-600'
+              : 'text-neutral-400'
         }`}
         aria-hidden="true"
       />
