@@ -40,6 +40,10 @@ import type {
   TraefikRouter,
   TraefikService,
 } from '@/lib/traefik/types';
+import type {
+  TraefikDiagnostic,
+  DiagnoseSummary,
+} from '@/lib/traefik/diagnose';
 
 /**
  * Thrown for any non-2xx response. Carries the HTTP status and the
@@ -314,6 +318,68 @@ export function fetchTraefikUdpRouters(): Promise<TraefikRouter[]> {
 
 export function fetchTraefikUdpServices(): Promise<TraefikService[]> {
   return getTraefikJson<TraefikService[]>('/api/traefik/udp/services');
+}
+
+// ---------- traefik diagnostics ----------
+
+export interface TraefikDiagnoseResponse {
+  ok: true;
+  diagnostics: TraefikDiagnostic[];
+  summary: DiagnoseSummary;
+  errors: { path: string; code: string; message: string }[];
+}
+
+export function fetchTraefikDiagnose(): Promise<TraefikDiagnoseResponse> {
+  return getTraefikJson<TraefikDiagnoseResponse>('/api/traefik/diagnose');
+}
+
+export interface TraefikLocateMatch {
+  name: string;
+  path: string;
+  line: number;
+}
+
+export async function locateTraefikResources(
+  names: string[],
+): Promise<TraefikLocateMatch[]> {
+  const res = await fetch('/api/traefik/locate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ names }),
+  });
+  const body = await parseJsonOrThrow<{ matches: TraefikLocateMatch[] }>(res);
+  return body.matches;
+}
+
+// ---------- traefik AI review ----------
+
+export interface TraefikAiReviewFinding {
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  /** Optional resource hint, e.g. `router:api@file`. */
+  subject?: string;
+}
+
+export interface TraefikAiReviewResponse {
+  enabled: true;
+  summary: string;
+  findings: TraefikAiReviewFinding[];
+}
+
+export interface TraefikAiReviewDisabledResponse {
+  enabled: false;
+}
+
+export async function fetchTraefikAiReview(
+  signal?: AbortSignal,
+): Promise<TraefikAiReviewResponse | TraefikAiReviewDisabledResponse> {
+  const res = await fetch('/api/traefik/ai-review', {
+    method: 'POST',
+    signal,
+  });
+  return parseJsonOrThrow<
+    TraefikAiReviewResponse | TraefikAiReviewDisabledResponse
+  >(res);
 }
 
 export async function testSettings(): Promise<{

@@ -8,7 +8,12 @@
  * Claude is being asked to do — not to be an audit log.
  */
 
-export type AiActivityRoute = 'complete' | 'validate' | 'format' | 'test';
+export type AiActivityRoute =
+  | 'complete'
+  | 'validate'
+  | 'format'
+  | 'test'
+  | 'traefik-review';
 export type AiActivityStatus = 'ok' | 'error' | 'disabled';
 
 export interface AiActivityEntry {

@@ -79,5 +79,17 @@ export function formatSystemPrompt(t: TraefikConfigType): string {
   ].join('\n\n');
 }
 
+export function traefikReviewSystemPrompt(): string {
+  return [
+    'You are a Traefik configuration reviewer embedded in the Traefik Workbench.',
+    'You will be shown a summary of the user\'s live Traefik runtime configuration: counts, the entry points, the routers, services, and middlewares (with their references), and a list of locally-detected diagnostics that the workbench has already flagged.',
+    'Your job is to review the snapshot for issues that the local checker may have missed: subtle misconfigurations, security risks (e.g. dashboard exposed without auth, permissive CORS, missing TLS on sensitive routers), inefficient or fragile patterns (e.g. duplicate hosts on the same entry point, overly broad rules), and operational concerns (no health checks on critical services, single-server load balancers without retries).',
+    'Do not duplicate findings the local checker already reported — they are listed for your awareness, not to be re-emitted. Only report new issues or higher-severity reframings of existing ones when you have a strong rationale.',
+    'Prefer concise, actionable messages. Reference resources by their fully-qualified Traefik name (e.g. `router:api@file`) in the optional `subject` field when applicable.',
+    'Return at most 20 findings. If the configuration is healthy, return an empty findings array and a one-line summary saying so.',
+    COMMON_TAIL,
+  ].join('\n\n');
+}
+
 export const TEST_PING_SYSTEM =
   'Respond with the single word "ok". Do not say anything else.';

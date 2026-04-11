@@ -28,7 +28,9 @@ import {
 import { fetchSettings, testTraefik } from '@/lib/api-client';
 import type { MaskedSettings } from '@/lib/settings/types';
 
+import { AiReviewSection } from './AiReviewSection';
 import { BrowseSection } from './BrowseSection';
+import { DiagnosticsSection } from './DiagnosticsSection';
 import { OverviewSection } from './OverviewSection';
 
 type ConnectionState =
@@ -179,6 +181,20 @@ export function TraefikPage() {
 
           {settings?.traefik.configured && (
             <OverviewSection
+              enabled={connection.kind === 'ok'}
+              reloadKey={reloadKey}
+            />
+          )}
+
+          {settings?.traefik.configured && (
+            <DiagnosticsSection
+              enabled={connection.kind === 'ok'}
+              reloadKey={reloadKey}
+            />
+          )}
+
+          {settings?.traefik.configured && (
+            <AiReviewSection
               enabled={connection.kind === 'ok'}
               reloadKey={reloadKey}
             />

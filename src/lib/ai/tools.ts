@@ -75,6 +75,52 @@ export const EMIT_DIAGNOSTICS_TOOL = {
   },
 };
 
+// ---------- emit_traefik_review ----------
+
+const REVIEW_SEVERITIES = ['error', 'warning', 'info'] as const;
+export type TraefikReviewSeverity = (typeof REVIEW_SEVERITIES)[number];
+
+export interface TraefikReviewFinding {
+  severity: TraefikReviewSeverity;
+  message: string;
+  /** Optional resource hint, e.g. `router:api@file`. */
+  subject?: string;
+}
+
+export interface TraefikReviewPayload {
+  /** One-paragraph summary of the runtime config's overall health. */
+  summary: string;
+  findings: TraefikReviewFinding[];
+}
+
+export const EMIT_TRAEFIK_REVIEW_TOOL = {
+  name: 'emit_traefik_review' as const,
+  description:
+    'Emit an AI-authored review of a Traefik runtime configuration snapshot.',
+  input_schema: {
+    type: 'object' as const,
+    additionalProperties: false,
+    properties: {
+      summary: { type: 'string' as const, minLength: 1, maxLength: 1000 },
+      findings: {
+        type: 'array' as const,
+        maxItems: 20,
+        items: {
+          type: 'object' as const,
+          additionalProperties: false,
+          properties: {
+            severity: { type: 'string' as const, enum: REVIEW_SEVERITIES },
+            message: { type: 'string' as const, minLength: 1, maxLength: 500 },
+            subject: { type: 'string' as const, maxLength: 200 },
+          },
+          required: ['severity', 'message'],
+        },
+      },
+    },
+    required: ['summary', 'findings'],
+  },
+};
+
 // ---------- emit_formatted ----------
 
 export const EMIT_FORMATTED_TOOL = {
@@ -149,6 +195,42 @@ export function validateDiagnostics(input: unknown): Diagnostic[] {
     if (out.length >= 20) break;
   }
   return out;
+}
+
+export function validateTraefikReview(input: unknown): TraefikReviewPayload {
+  if (!isObj(input)) throw new Error('review: not an object');
+  if (typeof input.summary !== 'string' || input.summary.length === 0) {
+    throw new Error('review: summary missing');
+  }
+  if (!Array.isArray(input.findings)) {
+    throw new Error('review: findings not an array');
+  }
+  const findings: TraefikReviewFinding[] = [];
+  for (const raw of input.findings) {
+    if (!isObj(raw)) continue;
+    if (typeof raw.severity !== 'string') continue;
+    if (
+      raw.severity !== 'error' &&
+      raw.severity !== 'warning' &&
+      raw.severity !== 'info'
+    ) {
+      continue;
+    }
+    if (typeof raw.message !== 'string' || raw.message.length === 0) continue;
+    const finding: TraefikReviewFinding = {
+      severity: raw.severity,
+      message: raw.message.slice(0, 500),
+    };
+    if (typeof raw.subject === 'string' && raw.subject.length > 0) {
+      finding.subject = raw.subject.slice(0, 200);
+    }
+    findings.push(finding);
+    if (findings.length >= 20) break;
+  }
+  return {
+    summary: input.summary.slice(0, 1000),
+    findings,
+  };
 }
 
 export function validateFormatted(input: unknown): string {
