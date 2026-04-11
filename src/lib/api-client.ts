@@ -181,19 +181,33 @@ export async function updateSettings(
   return parseJsonOrThrow<MaskedSettings>(res);
 }
 
-export async function testSettings(): Promise<{ ok: boolean; error?: string; model?: string }> {
+export async function testSettings(): Promise<{
+  ok: boolean;
+  error?: string;
+  model?: string;
+  status?: number | null;
+  type?: string | null;
+}> {
   const res = await fetch('/api/settings/test', { method: 'POST' });
   if (res.ok) {
     return parseJsonOrThrow<{ ok: true; model: string }>(res);
   }
   let message = `HTTP ${res.status}`;
+  let status: number | null = null;
+  let type: string | null = null;
   try {
-    const body = (await res.json()) as { error?: string };
+    const body = (await res.json()) as {
+      error?: string;
+      status?: number | null;
+      type?: string | null;
+    };
     if (body?.error) message = body.error;
+    if (typeof body?.status === 'number') status = body.status;
+    if (typeof body?.type === 'string') type = body.type;
   } catch {
     // body wasn't JSON
   }
-  return { ok: false, error: message };
+  return { ok: false, error: message, status, type };
 }
 
 // ---------- AI ----------

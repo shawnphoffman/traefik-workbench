@@ -9,6 +9,8 @@
  * it land in "Recent AI activity".
  */
 
+import { APIError } from '@anthropic-ai/sdk';
+
 import { jsonError } from '@/lib/api-errors';
 import { getAi, AiDisabledError, AiNoKeyError } from '@/lib/ai/client';
 import { recordActivity } from '@/lib/ai/activity';
@@ -38,6 +40,37 @@ export async function POST(): Promise<Response> {
         status: 'disabled',
       });
       return Response.json({ ok: false, error: err.message }, { status: 400 });
+    }
+    // Unpack Anthropic SDK errors so the UI can show a clean message +
+    // status + error type instead of the raw "400 {"type":"error",...}"
+    // string the SDK stuffs into `err.message`.
+    if (err instanceof APIError) {
+      const body = err.error as
+        | { error?: { message?: string; type?: string } }
+        | undefined;
+      const cleanMessage =
+        body?.error?.message ?? err.message ?? 'Anthropic API error';
+      const errorType = body?.error?.type ?? err.type ?? null;
+      console.error('[settings/test] anthropic error', {
+        status: err.status,
+        type: errorType,
+        message: cleanMessage,
+      });
+      recordActivity({
+        route: 'test',
+        latencyMs: Date.now() - start,
+        status: 'error',
+        error: cleanMessage.slice(0, 200),
+      });
+      return Response.json(
+        {
+          ok: false,
+          error: cleanMessage,
+          status: err.status ?? null,
+          type: errorType,
+        },
+        { status: 400 },
+      );
     }
     const message = err instanceof Error ? err.message : String(err);
     console.error('[settings/test] error', err);

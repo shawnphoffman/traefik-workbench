@@ -33,7 +33,12 @@ type TestResult =
   | { kind: 'idle' }
   | { kind: 'pending' }
   | { kind: 'ok'; model: string }
-  | { kind: 'error'; message: string };
+  | {
+      kind: 'error';
+      message: string;
+      status?: number | null;
+      type?: string | null;
+    };
 
 export function AiSettingsSection({
   settings,
@@ -85,7 +90,12 @@ export function AiSettingsSection({
     if (result.ok) {
       setTest({ kind: 'ok', model: result.model ?? settings.ai.model });
     } else {
-      setTest({ kind: 'error', message: result.error ?? 'Unknown error' });
+      setTest({
+        kind: 'error',
+        message: result.error ?? 'Unknown error',
+        status: result.status ?? null,
+        type: result.type ?? null,
+      });
     }
     onAfterTest?.();
   }, [keyDraft, onPatch, settings.ai.apiKeySource, settings.ai.model, onAfterTest]);
@@ -102,7 +112,12 @@ export function AiSettingsSection({
     if (result.ok) {
       setTest({ kind: 'ok', model: result.model ?? settings.ai.model });
     } else {
-      setTest({ kind: 'error', message: result.error ?? 'Unknown error' });
+      setTest({
+        kind: 'error',
+        message: result.error ?? 'Unknown error',
+        status: result.status ?? null,
+        type: result.type ?? null,
+      });
     }
     onAfterTest?.();
   }, [settings.ai.model, onAfterTest]);
@@ -298,12 +313,7 @@ export function AiSettingsSection({
                 Connected ({test.model})
               </div>
             )}
-            {test.kind === 'error' && (
-              <div className="flex items-start gap-1.5 text-base text-red-300">
-                <XCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-                <span>{test.message}</span>
-              </div>
-            )}
+            {test.kind === 'error' && <TestErrorCard error={test} />}
           </div>
         </Field>
       </div>
@@ -382,6 +392,43 @@ function FeatureRow({
         <div className="text-sm text-neutral-500">{hint}</div>
       </div>
       <Toggle checked={checked} onChange={onChange} />
+    </div>
+  );
+}
+
+function TestErrorCard({
+  error,
+}: {
+  error: {
+    message: string;
+    status?: number | null;
+    type?: string | null;
+  };
+}) {
+  // Build a short, human-readable title from whatever metadata we have:
+  //   "HTTP 400 · invalid_request_error"
+  //   "HTTP 401"
+  //   "Connection error"
+  const parts: string[] = [];
+  if (typeof error.status === 'number') parts.push(`HTTP ${error.status}`);
+  if (error.type) parts.push(error.type);
+  const title = parts.length > 0 ? parts.join(' · ') : 'Connection failed';
+
+  return (
+    <div
+      role="alert"
+      className="flex w-full max-w-2xl items-start gap-2 rounded-md border border-red-900/60 bg-red-950/40 px-3 py-2.5"
+    >
+      <XCircle
+        className="mt-0.5 h-4 w-4 shrink-0 text-red-400"
+        aria-hidden="true"
+      />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <div className="text-sm font-semibold text-red-200">{title}</div>
+        <div className="break-words text-sm text-red-100/90">
+          {error.message}
+        </div>
+      </div>
     </div>
   );
 }
