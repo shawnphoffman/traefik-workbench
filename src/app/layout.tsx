@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const APP_NAME = "Traefik Workbench";
+const APP_NAME = "Træfik Workbench";
 const APP_DESCRIPTION =
   "A lightweight, self-hosted, web-based YAML editor with a 3-pane interface for managing Traefik dynamic configuration files without SSH. Optional Claude AI integration for completion, validation, and formatting.";
 const APP_TAGLINE = "YAML configuration editor for Traefik";

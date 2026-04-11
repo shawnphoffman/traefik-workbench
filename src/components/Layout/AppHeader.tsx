@@ -25,8 +25,9 @@
 import { useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Loader2, Network, Save, Settings as SettingsIcon } from 'lucide-react';
+import { Loader2, Save, Settings as SettingsIcon } from 'lucide-react';
 
+import { TraefikIcon } from '@/components/icons/TraefikIcon';
 import { useToast } from '@/components/ui/Toast';
 import { Tooltip } from '@/components/ui/Tooltip';
 import {
@@ -81,7 +82,7 @@ export function AppHeader() {
         />
         <div className="flex flex-col leading-tight">
           <span className="text-sm font-semibold tracking-tight text-neutral-100">
-            Traefik Workbench
+            Tr&aelig;fik Workbench
           </span>
           <span className="text-[11px] uppercase tracking-wider text-neutral-500">
             YAML configuration editor
@@ -136,7 +137,7 @@ export function AppHeader() {
               aria-label="Open Traefik status"
               className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 bg-neutral-900 text-neutral-300 transition-colors hover:border-sky-700 hover:bg-sky-950 hover:text-sky-100"
             >
-              <Network className="h-3.5 w-3.5" aria-hidden="true" />
+              <TraefikIcon className="h-4 w-4" />
             </Link>
           </Tooltip>
         )}

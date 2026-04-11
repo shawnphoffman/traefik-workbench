@@ -3,7 +3,7 @@
 /**
  * Read-only Traefik integration page. Phase 1 is just the connection
  * bar — overview, browse, diagnostics, and AI review come in later
- * phases. The page is reachable via the network icon in `AppHeader`,
+ * phases. The page is reachable via the Traefik icon in `AppHeader`,
  * which only renders when a base URL is configured in Settings.
  *
  * If someone navigates here directly without configuration we still
@@ -11,7 +11,6 @@
  * page never crashes on a missing config.
  */
 
-import Image from 'next/image';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -19,12 +18,12 @@ import {
   CheckCircle2,
   ExternalLink,
   Loader2,
-  Network,
   RefreshCw,
   Settings as SettingsIcon,
   XCircle,
 } from 'lucide-react';
 
+import { TraefikIcon } from '@/components/icons/TraefikIcon';
 import { fetchSettings, testTraefik } from '@/lib/api-client';
 import type { MaskedSettings } from '@/lib/settings/types';
 
@@ -126,16 +125,9 @@ export function TraefikPage() {
             Back
           </Link>
           <div className="flex items-center gap-2">
-            <Image
-              src="/logo.svg"
-              alt=""
-              width={28}
-              height={28}
-              priority
-              className="h-6 w-6"
-            />
+            <TraefikIcon className="h-6 w-6 text-sky-300" />
             <span className="text-lg font-semibold tracking-tight text-neutral-100">
-              Traefik
+              Træfik Workbench
             </span>
           </div>
         </div>
@@ -216,7 +208,7 @@ function EmptyState() {
   return (
     <section className="flex flex-col items-start gap-3 rounded-lg border border-neutral-800 bg-neutral-950 p-6">
       <div className="flex items-center gap-2">
-        <Network className="h-5 w-5 text-sky-300" aria-hidden="true" />
+        <TraefikIcon className="h-5 w-5 text-sky-300" />
         <h2 className="text-lg font-semibold text-neutral-100">
           Connect to Traefik
         </h2>
@@ -249,7 +241,7 @@ function ConnectionCard({
     <section className="rounded-lg border border-neutral-800 bg-neutral-950">
       <header className="flex items-center justify-between gap-2 border-b border-neutral-800 px-4 py-3">
         <div className="flex items-center gap-2">
-          <Network className="h-4 w-4 text-sky-300" aria-hidden="true" />
+          <TraefikIcon className="h-4 w-4 text-sky-300" />
           <h2 className="text-lg font-semibold text-neutral-100">Connection</h2>
         </div>
         <Link
