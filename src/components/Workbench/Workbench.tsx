@@ -12,8 +12,10 @@
 import { useEffect } from 'react';
 
 import { AppHeader } from '@/components/Layout/AppHeader';
+import { LeftPaneSplit } from '@/components/Layout/LeftPaneSplit';
 import { ThreePane } from '@/components/Layout/ThreePane';
 import { FileTree } from '@/components/FileTree/FileTree';
+import { TemplatesTree } from '@/components/FileTree/TemplatesTree';
 import { EditorTabs } from '@/components/Editor/EditorTabs';
 import { EditorPane } from '@/components/Editor/EditorPane';
 import { YamlTreePanel } from '@/components/YamlTree/YamlTreePanel';
@@ -24,7 +26,11 @@ import {
   type PendingOpen,
 } from '@/lib/pending-open';
 
-import { WorkbenchProvider, useWorkbench } from './WorkbenchContext';
+import {
+  LAYOUT_DEFAULTS,
+  WorkbenchProvider,
+  useWorkbench,
+} from './WorkbenchContext';
 
 export function Workbench() {
   return (
@@ -48,12 +54,40 @@ function WorkbenchLayout() {
     setRightWidth,
     resetLeftWidth,
     resetRightWidth,
+    leftSplitFraction,
+    setLeftSplitFraction,
+    resetLeftSplitFraction,
+    templateEntries,
+    templatesLoading,
+    templatesError,
     pendingClosePath,
     confirmPendingClose,
     cancelPendingClose,
     openFile,
     scrollToLine,
   } = useWorkbench();
+
+  // Show the templates pane only when the templates root yielded
+  // something useful. An empty list (or a 5xx from the templates API)
+  // means there's nothing to edit, so collapse the split and let the
+  // file tree fill the entire left pane — that matches the user's
+  // mental model: "if templates exist, split the pane".
+  const showTemplates =
+    !templatesLoading && !templatesError && templateEntries.length > 0;
+
+  const leftPane = showTemplates ? (
+    <LeftPaneSplit
+      top={<FileTree />}
+      bottom={<TemplatesTree />}
+      fraction={leftSplitFraction}
+      minFraction={LAYOUT_DEFAULTS.minLeftSplitFraction}
+      maxFraction={LAYOUT_DEFAULTS.maxLeftSplitFraction}
+      onResize={setLeftSplitFraction}
+      onReset={resetLeftSplitFraction}
+    />
+  ) : (
+    <FileTree />
+  );
 
   // Consume any "open this file at this line" handoff written by the
   // /traefik diagnostics panel before we got here. We do the read once
@@ -98,7 +132,7 @@ function WorkbenchLayout() {
           onResizeRight={setRightWidth}
           onResetLeft={resetLeftWidth}
           onResetRight={resetRightWidth}
-          left={<FileTree />}
+          left={leftPane}
           center={
             <>
               <EditorTabs />

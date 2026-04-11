@@ -13,10 +13,12 @@
  * Header toolbar (all Lucide icons):
  * - FilePlus       — new file (target directory is the selected folder or root)
  * - FolderPlus     — new folder
- * - LayoutTemplate — open the Templates dialog
- * - FileCode       — new template
  * - RefreshCw      — reload the tree
  * - PanelLeftClose — collapse the files panel
+ *
+ * Template-specific actions ("new template", "copy from template") live
+ * in the dedicated templates pane — `TemplatesTree` — so the file tree
+ * only deals with data files.
  *
  * `react-arborist`'s `Tree` requires numeric `width`/`height` props, so
  * we measure the container with `useResizeObserver` and only mount the
@@ -38,14 +40,12 @@ import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   Ellipsis,
-  FileCode,
   FilePlus,
   FileText,
   Folder,
   FolderInput,
   FolderOpen,
   FolderPlus,
-  LayoutTemplate,
   Loader2,
   PanelLeftClose,
   Pencil,
@@ -60,7 +60,6 @@ import { useToast } from '@/components/ui/Toast';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { InputDialog } from '@/components/ui/InputDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
-import { TemplatesDialog } from '@/components/Templates/TemplatesDialog';
 import { fetchFile } from '@/lib/api-client';
 import type { TreeEntry } from '@/types';
 
@@ -149,8 +148,6 @@ export function FileTree() {
   });
   const [saveAsTemplateDialog, setSaveAsTemplateDialog] =
     useState<SaveAsTemplateDialogState>({ status: 'closed' });
-  const [newTemplateOpen, setNewTemplateOpen] = useState<boolean>(false);
-  const [templatesOpen, setTemplatesOpen] = useState<boolean>(false);
 
   const handleActivate = useCallback(
     (node: NodeApi<TreeEntry>) => {
@@ -337,27 +334,6 @@ export function FileTree() {
     [saveAsTemplateDialog, saveAsTemplate, toast],
   );
 
-  const handleNewTemplateSubmit = useCallback(
-    async (templatePath: string) => {
-      const trimmed = templatePath.trim().replace(/^\/+/, '');
-      try {
-        await saveAsTemplate(trimmed, '');
-        toast({
-          kind: 'success',
-          message: `Created template ${trimmed}`,
-        });
-        setNewTemplateOpen(false);
-      } catch (err) {
-        toast({
-          kind: 'error',
-          title: 'Could not create template',
-          message: err instanceof Error ? err.message : String(err),
-        });
-      }
-    },
-    [saveAsTemplate, toast],
-  );
-
   const handleDeleteSubmit = useCallback(async () => {
     const entry = deleteDialog.entry;
     if (!entry) return;
@@ -420,20 +396,6 @@ export function FileTree() {
             tooltip="New folder"
           >
             <FolderPlus className="h-3.5 w-3.5" aria-hidden="true" />
-          </HeaderButton>
-          <HeaderButton
-            onClick={() => setTemplatesOpen(true)}
-            label="Open templates"
-            tooltip="Copy from templates…"
-          >
-            <LayoutTemplate className="h-3.5 w-3.5" aria-hidden="true" />
-          </HeaderButton>
-          <HeaderButton
-            onClick={() => setNewTemplateOpen(true)}
-            label="New template"
-            tooltip="New template…"
-          >
-            <FileCode className="h-3.5 w-3.5" aria-hidden="true" />
           </HeaderButton>
           <HeaderButton
             onClick={() => void reloadTree()}
@@ -615,18 +577,6 @@ export function FileTree() {
         onCancel={() => setSaveAsTemplateDialog({ status: 'closed' })}
       />
 
-      <InputDialog
-        open={newTemplateOpen}
-        title="New template"
-        description="Create a new empty template under the templates directory."
-        label="Template path"
-        placeholder="router.yml"
-        confirmLabel="Create template"
-        validate={templatePathValidator}
-        onConfirm={handleNewTemplateSubmit}
-        onCancel={() => setNewTemplateOpen(false)}
-      />
-
       <ConfirmDialog
         open={deleteDialog.open}
         title={
@@ -652,11 +602,6 @@ export function FileTree() {
         onCancel={() => setDeleteDialog({ open: false, entry: null })}
       />
 
-      <TemplatesDialog
-        open={templatesOpen}
-        onClose={() => setTemplatesOpen(false)}
-        defaultDestinationDir={activeParent}
-      />
     </div>
   );
 }
@@ -1026,22 +971,26 @@ function OverflowMenu({
 
   return (
     <>
-      <Tooltip content="More actions">
-        <button
-          ref={triggerRef}
-          type="button"
-          onClick={handleToggle}
-          aria-label={ariaLabel}
-          aria-haspopup="menu"
-          aria-expanded={open}
-          aria-controls={open ? menuId : undefined}
-          className={`ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-neutral-100 ${
-            open ? 'visible text-neutral-100' : 'invisible group-hover:visible'
-          }`}
-        >
-          <Ellipsis className="h-3 w-3" aria-hidden="true" />
-        </button>
-      </Tooltip>
+      {/*
+       * Intentionally NOT wrapped in a Tooltip — the hover-delayed
+       * "More actions" label was overlapping the dropdown menu and
+       * making the items hard to click. The visible Ellipsis icon plus
+       * the `aria-label` is enough for both sighted and assistive users.
+       */}
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={handleToggle}
+        aria-label={ariaLabel}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls={open ? menuId : undefined}
+        className={`ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-neutral-100 ${
+          open ? 'visible text-neutral-100' : 'invisible group-hover:visible'
+        }`}
+      >
+        <Ellipsis className="h-3 w-3" aria-hidden="true" />
+      </button>
       {open &&
         position &&
         createPortal(

@@ -13,8 +13,10 @@ import { test, expect, type Page } from '@playwright/test';
 
 import {
   dataPathExists,
+  readTemplateFile,
   seedDataDir,
   seedTemplatesDir,
+  templatePathExists,
 } from './fixtures';
 
 test.beforeEach(async () => {
@@ -182,29 +184,148 @@ test.describe('Workbench', () => {
     expect(await dataPathExists('services/web.yml')).toBe(false);
   });
 
-  test('copies a template into the data directory', async ({ page }) => {
+  test('shows the templates pane when templates exist', async ({ page }) => {
     await page.goto('/');
     await waitForTreeLoaded(page);
 
+    // Templates pane header is visible alongside the file tree.
+    await expect(
+      page.getByRole('tree', { name: 'Templates' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('treeitem', { name: /router\.yml/ }).last(),
+    ).toBeVisible();
+  });
+
+  test('opens, edits, and saves a template file', async ({ page }) => {
+    await page.goto('/');
+    await waitForTreeLoaded(page);
+
+    // Click the seeded template in the templates pane.
     await page
-      .getByRole('button', { name: 'Open templates' })
+      .getByRole('tree', { name: 'Templates' })
+      .getByRole('treeitem', { name: /router\.yml/ })
+      .click();
+
+    // Tab opens with a "tpl" badge marking it as a template.
+    const tab = page.getByRole('tab', { name: /router\.yml/ });
+    await expect(tab).toBeVisible();
+    await expect(tab.getByText('tpl', { exact: true })).toBeVisible();
+
+    // Edit the buffer and confirm the dirty state flips on.
+    const editor = page.locator('.monaco-editor').first();
+    await expect(editor).toBeVisible();
+    await editor.click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' # edited');
+    await expect(page.getByText('Modified', { exact: true })).toBeVisible();
+
+    // Save via the header button. We avoid Cmd/Ctrl+S for the same
+    // reason the data-file test does (Monaco command registry is
+    // flaky from outside the editor).
+    await page.getByRole('button', { name: 'Save active file' }).click();
+    await expect(page.getByText('Saved', { exact: true })).toBeVisible();
+
+    const onDisk = await readTemplateFile('router.yml');
+    expect(onDisk).toContain('# edited');
+  });
+
+  test('creates, renames, and deletes a template via the templates pane', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await waitForTreeLoaded(page);
+
+    // ---- create ----
+    // Both the Files header and the Templates header expose a
+    // "New template" button (the Files one is a "save current selection
+    // as a new template" shortcut). Scope to the templates header.
+    const templatesHeader = page
+      .locator('header')
+      .filter({ hasText: 'Templates' });
+    await templatesHeader
+      .getByRole('button', { name: 'New template' })
+      .click();
+
+    let dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('textbox').fill('fresh.yml');
+    await dialog.getByRole('button', { name: 'Create template' }).click();
+    await expect(dialog).toBeHidden();
+    expect(await templatePathExists('fresh.yml')).toBe(true);
+
+    // The new template appears in the templates pane.
+    const templatesPane = page.getByRole('tree', { name: 'Templates' });
+    const freshRow = templatesPane.getByRole('treeitem', {
+      name: /fresh\.yml/,
+    });
+    await expect(freshRow).toBeVisible();
+
+    // ---- rename ----
+    await freshRow.hover();
+    await page
+      .getByRole('button', { name: /Rename template fresh\.yml/ })
+      .click();
+
+    dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    const input = dialog.getByRole('textbox');
+    await input.fill('renamed.yml');
+    await dialog.getByRole('button', { name: 'Rename' }).click();
+    await expect(dialog).toBeHidden();
+
+    expect(await templatePathExists('fresh.yml')).toBe(false);
+    expect(await templatePathExists('renamed.yml')).toBe(true);
+
+    // ---- delete ----
+    const renamedRow = templatesPane.getByRole('treeitem', {
+      name: /renamed\.yml/,
+    });
+    await renamedRow.hover();
+    await page
+      .getByRole('button', { name: /Delete template renamed\.yml/ })
+      .click();
+
+    dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: 'Delete' }).click();
+    await expect(dialog).toBeHidden();
+    expect(await templatePathExists('renamed.yml')).toBe(false);
+  });
+
+  test('copies a template into the data directory from the templates pane', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await waitForTreeLoaded(page);
+
+    // Hover the seeded router.yml row in the templates pane to reveal
+    // the per-row action buttons, then click the "copy to data" icon.
+    const templatesPane = page.getByRole('tree', { name: 'Templates' });
+    const row = templatesPane.getByRole('treeitem', { name: /router\.yml/ });
+    await row.hover();
+    await page
+      .getByRole('button', { name: /Copy template router\.yml to data/ })
       .click();
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
 
-    // Select the seeded router.yml template from the left list.
-    await dialog.getByRole('button', { name: /router\.yml/ }).click();
+    // The filename field is prefilled with the template's basename.
+    const filenameInput = dialog.getByLabel('Destination filename');
+    await expect(filenameInput).toHaveValue('router.yml');
 
-    // The destination field auto-suggests a path; override to keep the
-    // test assertion stable.
-    const destInput = dialog.locator('input[type="text"]');
-    await destInput.fill('from-template.yml');
+    // Override the prefilled fields so the assertion is stable.
+    await dialog.getByLabel('Destination directory').fill('routers');
+    await filenameInput.fill('from-template.yml');
 
-    await dialog.getByRole('button', { name: /Copy/ }).click();
+    // Preview reflects the computed path.
+    await expect(dialog.getByText('routers/from-template.yml')).toBeVisible();
+
+    await dialog.getByRole('button', { name: /^Copy$/ }).click();
 
     await expect(dialog).toBeHidden();
-    expect(await dataPathExists('from-template.yml')).toBe(true);
+    expect(await dataPathExists('routers/from-template.yml')).toBe(true);
 
     // The newly-copied file should auto-open as a tab.
     await expect(

@@ -10,6 +10,8 @@ import { Loader2, X } from 'lucide-react';
 
 import {
   isDirty,
+  isTemplatePath,
+  stripTemplatePrefix,
   useWorkbench,
   type OpenFile,
 } from '@/components/Workbench/WorkbenchContext';
@@ -61,7 +63,10 @@ function Tab({
   onClose: () => void;
 }) {
   const dirty = isDirty(file);
-  const name = basename(file.path);
+  const isTemplate = isTemplatePath(file.path);
+  const displayPath = isTemplate ? stripTemplatePrefix(file.path) : file.path;
+  const name = basename(displayPath);
+  const tooltipPath = isTemplate ? `template: ${displayPath}` : displayPath;
 
   // Indicator precedence: saving (spinner) > dirty (amber dot) > close.
   // We always render the close affordance for dirty tabs next to the
@@ -111,13 +116,21 @@ function Tab({
       aria-selected={active}
       aria-busy={saving || undefined}
       onClick={onSelect}
-      title={file.path}
+      title={tooltipPath}
       className={`group flex shrink-0 cursor-pointer items-center gap-2 border-r border-neutral-800 px-3 text-sm ${
         active
           ? 'bg-neutral-900 text-neutral-50'
           : 'text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200'
       }`}
     >
+      {isTemplate && (
+        <span
+          className="rounded border border-sky-800/60 bg-sky-500/10 px-1 py-px text-[10px] font-medium uppercase tracking-wide text-sky-300"
+          aria-label="template"
+        >
+          tpl
+        </span>
+      )}
       <span className="max-w-[16rem] truncate">{name}</span>
       <span className="flex w-4 items-center justify-center">{indicator}</span>
       {(dirty || saving) && (

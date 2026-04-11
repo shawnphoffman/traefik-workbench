@@ -73,3 +73,18 @@ export async function dataPathExists(relPath: string): Promise<boolean> {
     return false;
   }
 }
+
+/** Read a template file from the templates directory as a string. */
+export async function readTemplateFile(relPath: string): Promise<string> {
+  return fs.readFile(path.join(TEMPLATES_DIR, relPath), 'utf8');
+}
+
+/** Check whether a path exists inside the templates directory. */
+export async function templatePathExists(relPath: string): Promise<boolean> {
+  try {
+    await fs.stat(path.join(TEMPLATES_DIR, relPath));
+    return true;
+  } catch {
+    return false;
+  }
+}

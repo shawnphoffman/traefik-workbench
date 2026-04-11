@@ -33,12 +33,50 @@ import {
   createEntry,
   createTemplate,
   deleteEntry,
+  deleteTemplate,
   fetchFile,
+  fetchTemplateFile,
+  fetchTemplates,
   fetchTree,
   renameEntry,
+  renameTemplate,
   saveFile,
+  saveTemplateFile,
 } from '@/lib/api-client';
-import type { CopyTemplateRequest, TreeEntry } from '@/types';
+import type {
+  CopyTemplateRequest,
+  TemplateEntry,
+  TreeEntry,
+} from '@/types';
+
+/**
+ * Synthetic prefix used to namespace template files inside `openFiles`.
+ * Templates live in a separate filesystem root from data files (and may
+ * have colliding names like `router.yml`), so we mark every open
+ * template tab with a `template:` scheme. The prefix is invalid as a
+ * POSIX path, so it can never collide with a real data file.
+ *
+ * The prefix is stripped before any network call and re-attached when
+ * we update local state.
+ */
+export const TEMPLATE_PATH_PREFIX = 'template:';
+
+/** True if `path` is a tab handle for a template file (not a data file). */
+export function isTemplatePath(path: string): boolean {
+  return path.startsWith(TEMPLATE_PATH_PREFIX);
+}
+
+/** Strip the `template:` prefix from a tab handle to get the on-disk path. */
+export function stripTemplatePrefix(path: string): string {
+  return path.startsWith(TEMPLATE_PATH_PREFIX)
+    ? path.slice(TEMPLATE_PATH_PREFIX.length)
+    : path;
+}
+
+/** Build a tab handle for a template at the given relative path. */
+export function templateTabPath(templatePath: string): string {
+  return `${TEMPLATE_PATH_PREFIX}${templatePath}`;
+}
 
 // ---------- types ----------
 
@@ -61,6 +99,11 @@ interface WorkbenchState {
   treeLoading: boolean;
   treeError: string | null;
 
+  // Templates
+  templateEntries: TemplateEntry[];
+  templatesLoading: boolean;
+  templatesError: string | null;
+
   // Files
   openFiles: OpenFile[];
   activePath: string | null;
@@ -76,6 +119,15 @@ interface WorkbenchState {
   setRightWidth: (px: number) => void;
   resetLeftWidth: () => void;
   resetRightWidth: () => void;
+  /**
+   * Fraction (0..1) of the left pane's height assigned to the file
+   * tree, with the templates pane taking the remainder. Only meaningful
+   * when there are templates to show; otherwise the file tree fills the
+   * pane on its own.
+   */
+  leftSplitFraction: number;
+  setLeftSplitFraction: (fraction: number) => void;
+  resetLeftSplitFraction: () => void;
 
   // Saves in flight. Stable across renders; `isSaving(path)` is the
   // read side, `savePath(path)` / `saveActive()` are the write sides.
@@ -87,6 +139,7 @@ interface WorkbenchState {
 
   // Actions
   reloadTree: () => Promise<void>;
+  reloadTemplates: () => Promise<void>;
   openFile: (path: string) => Promise<void>;
   closeFile: (path: string) => void;
   /**
@@ -130,6 +183,17 @@ interface WorkbenchState {
    * read-only).
    */
   saveAsTemplate: (templatePath: string, content: string) => Promise<void>;
+  /** Delete a template by its on-disk relative path. */
+  deleteTemplatePath: (templatePath: string) => Promise<void>;
+  /**
+   * Rename (move) a template by its on-disk relative path. Tabs whose
+   * handle points at the renamed template are remapped so unsaved edits
+   * stay attached to the right buffer.
+   */
+  renameTemplatePath: (
+    sourceTemplatePath: string,
+    destinationTemplatePath: string,
+  ) => Promise<void>;
 
   // Editor integration
   registerEditor: (
@@ -157,6 +221,14 @@ export const LAYOUT_DEFAULTS = {
   maxLeftWidth: 560,
   minRightWidth: 200,
   maxRightWidth: 640,
+  /**
+   * Default split between the file tree (top) and the templates tree
+   * (bottom) inside the left pane: ~2/3 to files, ~1/3 to templates.
+   * Stored as a fraction so it adapts to any container height.
+   */
+  leftSplitFraction: 0.66,
+  minLeftSplitFraction: 0.15,
+  maxLeftSplitFraction: 0.85,
 } as const;
 
 function clamp(value: number, min: number, max: number): number {
@@ -171,6 +243,7 @@ interface PersistedLayout {
   rightCollapsed?: boolean;
   leftWidth?: number;
   rightWidth?: number;
+  leftSplitFraction?: number;
 }
 
 function readPersistedLayout(): PersistedLayout {
@@ -294,6 +367,10 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [treeLoading, setTreeLoading] = useState<boolean>(true);
   const [treeError, setTreeError] = useState<string | null>(null);
 
+  const [templateEntries, setTemplateEntries] = useState<TemplateEntry[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState<boolean>(true);
+  const [templatesError, setTemplatesError] = useState<string | null>(null);
+
   // Hydrate openFiles + activePath from localStorage on first render so
   // navigating to /settings and back (or a hard reload) doesn't lose
   // unsaved buffers. We do this in the lazy initializer so the very
@@ -346,6 +423,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [rightWidth, setRightWidthState] = useState<number>(
     LAYOUT_DEFAULTS.rightWidth,
   );
+  const [leftSplitFraction, setLeftSplitFractionState] = useState<number>(
+    LAYOUT_DEFAULTS.leftSplitFraction,
+  );
 
   useEffect(() => {
     const persisted = readPersistedLayout();
@@ -380,6 +460,15 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         ),
       );
     }
+    if (typeof persisted.leftSplitFraction === 'number') {
+      setLeftSplitFractionState(
+        clamp(
+          persisted.leftSplitFraction,
+          LAYOUT_DEFAULTS.minLeftSplitFraction,
+          LAYOUT_DEFAULTS.maxLeftSplitFraction,
+        ),
+      );
+    }
   }, []);
 
   useEffect(() => {
@@ -389,6 +478,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       rightCollapsed,
       leftWidth,
       rightWidth,
+      leftSplitFraction,
     };
     try {
       window.localStorage.setItem(
@@ -398,7 +488,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore quota / private-mode errors — layout is a nice-to-have.
     }
-  }, [leftCollapsed, rightCollapsed, leftWidth, rightWidth]);
+  }, [leftCollapsed, rightCollapsed, leftWidth, rightWidth, leftSplitFraction]);
 
   // Persist the editor session (open tabs + active selection + buffer
   // contents) so the workbench survives navigation to /settings and
@@ -463,6 +553,19 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     () => setRightWidthState(LAYOUT_DEFAULTS.rightWidth),
     [],
   );
+  const setLeftSplitFraction = useCallback((fraction: number) => {
+    setLeftSplitFractionState(
+      clamp(
+        fraction,
+        LAYOUT_DEFAULTS.minLeftSplitFraction,
+        LAYOUT_DEFAULTS.maxLeftSplitFraction,
+      ),
+    );
+  }, []);
+  const resetLeftSplitFraction = useCallback(
+    () => setLeftSplitFractionState(LAYOUT_DEFAULTS.leftSplitFraction),
+    [],
+  );
 
   // The Monaco editor instance lives in a ref — it's imperative state
   // that should never trigger re-renders.
@@ -489,6 +592,29 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     void reloadTree();
   }, [reloadTree]);
 
+  // ---------- templates ----------
+
+  const reloadTemplates = useCallback(async () => {
+    setTemplatesLoading(true);
+    setTemplatesError(null);
+    try {
+      const response = await fetchTemplates();
+      setTemplateEntries(response.entries);
+    } catch (err) {
+      setTemplatesError(errorMessage(err));
+      setTemplateEntries([]);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  }, []);
+
+  // Load the templates list once on mount. Templates aren't required —
+  // a missing/empty templates dir simply means the templates pane stays
+  // hidden.
+  useEffect(() => {
+    void reloadTemplates();
+  }, [reloadTemplates]);
+
   // ---------- file operations ----------
 
   const openFile = useCallback(async (path: string) => {
@@ -514,7 +640,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     if (alreadyOpen) return;
 
     try {
-      const body = await fetchFile(path);
+      // Templates and data files use distinct API roots; the synthetic
+      // `template:` prefix on the tab handle tells us which to hit.
+      const body = isTemplatePath(path)
+        ? await fetchTemplateFile(stripTemplatePrefix(path))
+        : await fetchFile(path);
       setOpenFiles((prev) =>
         prev.map((f) =>
           f.path === path
@@ -661,7 +791,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     });
 
     try {
-      await saveFile(path, content);
+      if (isTemplatePath(path)) {
+        await saveTemplateFile(stripTemplatePrefix(path), content);
+      } else {
+        await saveFile(path, content);
+      }
       setOpenFiles((prev) =>
         prev.map((f) =>
           f.path === path ? { ...f, savedContent: content, error: null } : f,
@@ -795,8 +929,63 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const saveAsTemplate = useCallback(
     async (templatePath: string, content: string) => {
       await createTemplate(templatePath, content);
+      // Refresh the templates list so the new file shows up in the
+      // templates pane without a hard reload.
+      await reloadTemplates();
     },
-    [],
+    [reloadTemplates],
+  );
+
+  const deleteTemplatePath = useCallback(
+    async (templatePath: string) => {
+      await deleteTemplate(templatePath);
+      // Close any tabs whose handle points at the deleted template.
+      const handle = templateTabPath(templatePath);
+      setOpenFiles((prev) => {
+        const next = prev.filter((f) => f.path !== handle);
+        if (next.length !== prev.length && activePath != null) {
+          const stillOpen = next.some((f) => f.path === activePath);
+          if (!stillOpen) {
+            setActivePath(next.length > 0 ? next[0].path : null);
+          }
+        }
+        return next;
+      });
+      await reloadTemplates();
+    },
+    [reloadTemplates, activePath],
+  );
+
+  const renameTemplatePath = useCallback(
+    async (
+      sourceTemplatePath: string,
+      destinationTemplatePath: string,
+    ) => {
+      if (sourceTemplatePath === destinationTemplatePath) return;
+
+      // Match the data-file rename guard: refuse while a save for this
+      // tab is in flight, otherwise the PUT lands on the wrong path.
+      const sourceHandle = templateTabPath(sourceTemplatePath);
+      if (savingPathsRef.current.has(sourceHandle)) {
+        throw new Error(
+          'Cannot rename while a save is in progress. Please try again in a moment.',
+        );
+      }
+
+      await renameTemplate(sourceTemplatePath, destinationTemplatePath);
+
+      // Remap any open tab whose handle points at the renamed template.
+      const destHandle = templateTabPath(destinationTemplatePath);
+      setOpenFiles((prev) =>
+        prev.map((f) =>
+          f.path === sourceHandle ? { ...f, path: destHandle } : f,
+        ),
+      );
+      setActivePath((prev) => (prev === sourceHandle ? destHandle : prev));
+
+      await reloadTemplates();
+    },
+    [reloadTemplates],
   );
 
   // ---------- editor bridge ----------
@@ -821,6 +1010,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       treeEntries,
       treeLoading,
       treeError,
+      templateEntries,
+      templatesLoading,
+      templatesError,
       openFiles,
       activePath,
       savingPaths,
@@ -835,7 +1027,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       setRightWidth,
       resetLeftWidth,
       resetRightWidth,
+      leftSplitFraction,
+      setLeftSplitFraction,
+      resetLeftSplitFraction,
       reloadTree,
+      reloadTemplates,
       openFile,
       closeFile,
       requestCloseFile,
@@ -853,6 +1049,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       renamePath,
       copyTemplateToData,
       saveAsTemplate,
+      deleteTemplatePath,
+      renameTemplatePath,
       registerEditor,
       scrollToLine,
     }),
@@ -860,6 +1058,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       treeEntries,
       treeLoading,
       treeError,
+      templateEntries,
+      templatesLoading,
+      templatesError,
       openFiles,
       activePath,
       savingPaths,
@@ -874,7 +1075,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       setRightWidth,
       resetLeftWidth,
       resetRightWidth,
+      leftSplitFraction,
+      setLeftSplitFraction,
+      resetLeftSplitFraction,
       reloadTree,
+      reloadTemplates,
       openFile,
       closeFile,
       requestCloseFile,
@@ -892,6 +1097,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       renamePath,
       copyTemplateToData,
       saveAsTemplate,
+      deleteTemplatePath,
+      renameTemplatePath,
       registerEditor,
       scrollToLine,
     ],

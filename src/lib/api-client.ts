@@ -192,6 +192,62 @@ export async function createTemplate(
   await parseJsonOrThrow<{ ok: true }>(res);
 }
 
+/**
+ * Read an existing template file's content.
+ */
+export async function fetchTemplateFile(
+  templatePath: string,
+): Promise<FileContentResponse> {
+  const url = `/api/templates/${encodeSegments(templatePath)}`;
+  const res = await fetch(url);
+  return parseJsonOrThrow<FileContentResponse>(res);
+}
+
+/**
+ * Overwrite an existing template file. Fails with 5xx if the templates
+ * volume is mounted read-only.
+ */
+export async function saveTemplateFile(
+  templatePath: string,
+  content: string,
+): Promise<void> {
+  const url = `/api/templates/${encodeSegments(templatePath)}`;
+  const res = await fetch(url, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ content }),
+  });
+  await parseJsonOrThrow<{ ok: true }>(res);
+}
+
+/**
+ * Delete a template file.
+ */
+export async function deleteTemplate(templatePath: string): Promise<void> {
+  const url = `/api/templates/${encodeSegments(templatePath)}`;
+  const res = await fetch(url, { method: 'DELETE' });
+  await parseJsonOrThrow<{ ok: true }>(res);
+}
+
+/**
+ * Rename (move) a template file. Returns the new relative path as
+ * canonicalized by the server.
+ */
+export async function renameTemplate(
+  templatePath: string,
+  destinationPath: string,
+): Promise<string> {
+  const url = `/api/templates/${encodeSegments(templatePath)}`;
+  const body: RenameEntryRequest = { destinationPath };
+  const res = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const parsed = await parseJsonOrThrow<{ ok: true; path: string }>(res);
+  return parsed.path;
+}
+
 // ---------- settings ----------
 
 export async function fetchSettings(): Promise<MaskedSettings> {

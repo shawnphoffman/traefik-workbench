@@ -44,6 +44,8 @@ import type { editor } from 'monaco-editor';
 
 import {
   isDirty,
+  isTemplatePath,
+  stripTemplatePrefix,
   useActiveFile,
   useWorkbench,
   useWorkspaceFilePaths,
@@ -359,7 +361,7 @@ function EditorBody({
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-neutral-500">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-        Loading {basename(active.path)}…
+        Loading {basename(displayPath(active.path))}…
       </div>
     );
   }
@@ -492,7 +494,13 @@ function StatusBar({
           <LiveAiToggle live={liveAi} onToggle={onToggleLiveAi} />
         )}
         {aiPill}
-        <span className="truncate text-neutral-500">{active?.path ?? ''}</span>
+        <span className="truncate text-neutral-500">
+          {active
+            ? isTemplatePath(active.path)
+              ? `template: ${stripTemplatePrefix(active.path)}`
+              : active.path
+            : ''}
+        </span>
       </div>
     </div>
   );
@@ -594,4 +602,9 @@ const MONACO_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
 function basename(p: string): string {
   const i = p.lastIndexOf('/');
   return i === -1 ? p : p.slice(i + 1);
+}
+
+/** Strip the synthetic `template:` scheme so the user sees a clean path. */
+function displayPath(p: string): string {
+  return isTemplatePath(p) ? stripTemplatePrefix(p) : p;
 }
