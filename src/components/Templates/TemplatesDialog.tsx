@@ -62,9 +62,9 @@ export function TemplatesDialog({
     setLoadError(null);
     setSelectedPath(null);
     fetchTemplates()
-      .then((entries) => {
+      .then((response) => {
         if (cancelled) return;
-        setTemplates(entries);
+        setTemplates(response.entries);
       })
       .catch((err) => {
         if (cancelled) return;

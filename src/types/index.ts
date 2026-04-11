@@ -54,6 +54,20 @@ export interface CopyTemplateRequest {
   destinationPath: string;
 }
 
+export interface TemplatesIndexResponse {
+  entries: TemplateEntry[];
+  /**
+   * True when the templates directory is writable from the API. Controlled
+   * by `TEMPLATES_READONLY` (defaults to false → templates are read-only).
+   */
+  writable: boolean;
+}
+
+export interface CreateTemplateRequest {
+  /** Initial file contents. May be the empty string. */
+  content: string;
+}
+
 /** Kinds of YAML tree nodes shown in the right pane. */
 export type YamlNodeKind = 'map' | 'seq' | 'scalar';
 

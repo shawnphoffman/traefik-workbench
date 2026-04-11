@@ -7,12 +7,14 @@
  * Interaction model:
  * - Single click on a file: open in editor
  * - Single click on a directory: toggle expand/collapse
- * - Hover over a row: reveal rename/delete icons
+ * - Hover over a row: reveal rename/delete icons + an overflow menu
+ *   with secondary actions (move, save as template)
  *
  * Header toolbar (all Lucide icons):
  * - FilePlus       — new file (target directory is the selected folder or root)
  * - FolderPlus     — new folder
  * - LayoutTemplate — open the Templates dialog
+ * - FileCode       — new template (only when templates are writable)
  * - RefreshCw      — reload the tree
  * - PanelLeftClose — collapse the files panel
  *
@@ -23,12 +25,24 @@
  */
 
 import { Tree, type NodeApi, type NodeRendererProps } from 'react-arborist';
-import { useCallback, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
+  Ellipsis,
+  FileCode,
   FilePlus,
   FileText,
   Folder,
+  FolderInput,
   FolderOpen,
   FolderPlus,
   LayoutTemplate,
@@ -36,6 +50,7 @@ import {
   PanelLeftClose,
   Pencil,
   RefreshCw,
+  Save,
   Trash2,
 } from 'lucide-react';
 
@@ -46,6 +61,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { InputDialog } from '@/components/ui/InputDialog';
 import { Tooltip } from '@/components/ui/Tooltip';
 import { TemplatesDialog } from '@/components/Templates/TemplatesDialog';
+import { fetchFile } from '@/lib/api-client';
 import type { TreeEntry } from '@/types';
 
 type CreateKind = 'file' | 'directory';
@@ -67,6 +83,29 @@ interface RenameDialogState {
   entry: TreeEntry | null;
 }
 
+interface MoveDialogState {
+  open: boolean;
+  entry: TreeEntry | null;
+}
+
+/**
+ * State machine for the "Save as template" flow. The flow is:
+ *
+ *   1. User clicks the menu item → status: 'loading' while we fetch
+ *      the source file's content (or read the in-memory buffer)
+ *   2. status: 'ready' → InputDialog is shown with the suggested
+ *      template path
+ *   3. User confirms → status: 'saving' → API call → success/error
+ *
+ * We keep the captured `content` here rather than re-fetching on
+ * confirm so the template snapshot matches the moment the user chose
+ * the action.
+ */
+type SaveAsTemplateDialogState =
+  | { status: 'closed' }
+  | { status: 'loading'; entry: TreeEntry }
+  | { status: 'ready'; entry: TreeEntry; content: string };
+
 export function FileTree() {
   const {
     treeEntries,
@@ -74,12 +113,15 @@ export function FileTree() {
     treeError,
     reloadTree,
     openFile,
+    openFiles,
     activePath,
     toggleLeft,
     createFile,
     createDirectory,
     deletePath,
     renamePath,
+    templatesWritable,
+    saveAsTemplate,
   } = useWorkbench();
 
   const { toast } = useToast();
@@ -102,6 +144,13 @@ export function FileTree() {
     open: false,
     entry: null,
   });
+  const [moveDialog, setMoveDialog] = useState<MoveDialogState>({
+    open: false,
+    entry: null,
+  });
+  const [saveAsTemplateDialog, setSaveAsTemplateDialog] =
+    useState<SaveAsTemplateDialogState>({ status: 'closed' });
+  const [newTemplateOpen, setNewTemplateOpen] = useState<boolean>(false);
   const [templatesOpen, setTemplatesOpen] = useState<boolean>(false);
 
   const handleActivate = useCallback(
@@ -201,6 +250,115 @@ export function FileTree() {
     [renameDialog.entry, renamePath, toast],
   );
 
+  const handleMoveSubmit = useCallback(
+    async (destinationDir: string) => {
+      const entry = moveDialog.entry;
+      if (!entry) return;
+      // Normalize the destination directory: strip trailing slashes
+      // and treat the empty string as "data root".
+      const normalizedDir = destinationDir.trim().replace(/^\/+|\/+$/g, '');
+      const destination =
+        normalizedDir.length > 0
+          ? `${normalizedDir}/${entry.name}`
+          : entry.name;
+      if (destination === entry.path) {
+        // No-op move (user picked the entry's current parent).
+        setMoveDialog({ open: false, entry: null });
+        return;
+      }
+      try {
+        await renamePath(entry.path, destination);
+        toast({
+          kind: 'success',
+          message: `Moved to ${destination}`,
+        });
+        setMoveDialog({ open: false, entry: null });
+      } catch (err) {
+        toast({
+          kind: 'error',
+          title: 'Move failed',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [moveDialog.entry, renamePath, toast],
+  );
+
+  /**
+   * Open the "Save as template" dialog for a tree row. We capture the
+   * file's content up front so the dialog doesn't race a concurrent
+   * edit. If the file is already open as a tab we read the in-memory
+   * buffer (which may be unsaved); otherwise we fetch from the server.
+   */
+  const handleRequestSaveAsTemplate = useCallback(
+    async (entry: TreeEntry) => {
+      if (entry.kind !== 'file') return;
+      setSaveAsTemplateDialog({ status: 'loading', entry });
+      try {
+        const open = openFiles.find((f) => f.path === entry.path);
+        let content: string;
+        if (open) {
+          content = open.content;
+        } else {
+          const body = await fetchFile(entry.path);
+          content = body.content;
+        }
+        setSaveAsTemplateDialog({ status: 'ready', entry, content });
+      } catch (err) {
+        setSaveAsTemplateDialog({ status: 'closed' });
+        toast({
+          kind: 'error',
+          title: 'Could not read file',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [openFiles, toast],
+  );
+
+  const handleSaveAsTemplateSubmit = useCallback(
+    async (templatePath: string) => {
+      if (saveAsTemplateDialog.status !== 'ready') return;
+      const trimmed = templatePath.trim().replace(/^\/+/, '');
+      try {
+        await saveAsTemplate(trimmed, saveAsTemplateDialog.content);
+        toast({
+          kind: 'success',
+          message: `Saved template ${trimmed}`,
+        });
+        setSaveAsTemplateDialog({ status: 'closed' });
+      } catch (err) {
+        toast({
+          kind: 'error',
+          title: 'Save as template failed',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [saveAsTemplateDialog, saveAsTemplate, toast],
+  );
+
+  const handleNewTemplateSubmit = useCallback(
+    async (templatePath: string) => {
+      const trimmed = templatePath.trim().replace(/^\/+/, '');
+      try {
+        await saveAsTemplate(trimmed, '');
+        toast({
+          kind: 'success',
+          message: `Created template ${trimmed}`,
+        });
+        setNewTemplateOpen(false);
+      } catch (err) {
+        toast({
+          kind: 'error',
+          title: 'Could not create template',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [saveAsTemplate, toast],
+  );
+
   const handleDeleteSubmit = useCallback(async () => {
     const entry = deleteDialog.entry;
     if (!entry) return;
@@ -231,6 +389,14 @@ export function FileTree() {
     },
     [renameDialog.entry],
   );
+
+  const moveValidator = useCallback((value: string) => {
+    return validateRelativeDirPath(value);
+  }, []);
+
+  const templatePathValidator = useCallback((value: string) => {
+    return validateTemplatePath(value);
+  }, []);
 
   // The arborist tree needs a key that changes when the underlying data
   // changes; otherwise state (e.g. open dirs) can get stuck on stale
@@ -263,6 +429,15 @@ export function FileTree() {
           >
             <LayoutTemplate className="h-3.5 w-3.5" aria-hidden="true" />
           </HeaderButton>
+          {templatesWritable && (
+            <HeaderButton
+              onClick={() => setNewTemplateOpen(true)}
+              label="New template"
+              tooltip="New template…"
+            >
+              <FileCode className="h-3.5 w-3.5" aria-hidden="true" />
+            </HeaderButton>
+          )}
           <HeaderButton
             onClick={() => void reloadTree()}
             label="Reload file tree"
@@ -325,9 +500,14 @@ export function FileTree() {
             {(props) => (
               <FileTreeNode
                 {...props}
+                templatesWritable={templatesWritable === true}
                 onRequestRename={(entry) =>
                   setRenameDialog({ open: true, entry })
                 }
+                onRequestMove={(entry) =>
+                  setMoveDialog({ open: true, entry })
+                }
+                onRequestSaveAsTemplate={handleRequestSaveAsTemplate}
                 onRequestDelete={(entry) =>
                   setDeleteDialog({ open: true, entry })
                 }
@@ -386,6 +566,69 @@ export function FileTree() {
         validate={renameValidator}
         onConfirm={handleRenameSubmit}
         onCancel={() => setRenameDialog({ open: false, entry: null })}
+      />
+
+      <InputDialog
+        open={moveDialog.open}
+        title={
+          moveDialog.entry?.kind === 'directory' ? 'Move folder' : 'Move file'
+        }
+        description={
+          moveDialog.entry ? (
+            <>
+              Moving{' '}
+              <code className="rounded bg-neutral-800 px-1 py-0.5 font-mono text-xs">
+                {moveDialog.entry.path}
+              </code>
+            </>
+          ) : null
+        }
+        label="Destination directory"
+        placeholder="routers"
+        initialValue={parentOf(moveDialog.entry?.path ?? '')}
+        confirmLabel="Move"
+        validate={moveValidator}
+        onConfirm={handleMoveSubmit}
+        onCancel={() => setMoveDialog({ open: false, entry: null })}
+      />
+
+      <InputDialog
+        open={saveAsTemplateDialog.status === 'ready'}
+        title="Save as template"
+        description={
+          saveAsTemplateDialog.status === 'ready' ? (
+            <>
+              Saving a copy of{' '}
+              <code className="rounded bg-neutral-800 px-1 py-0.5 font-mono text-xs">
+                {saveAsTemplateDialog.entry.path}
+              </code>{' '}
+              into the templates directory.
+            </>
+          ) : null
+        }
+        label="Template path"
+        placeholder="router.yml"
+        initialValue={
+          saveAsTemplateDialog.status === 'ready'
+            ? saveAsTemplateDialog.entry.name
+            : ''
+        }
+        confirmLabel="Save template"
+        validate={templatePathValidator}
+        onConfirm={handleSaveAsTemplateSubmit}
+        onCancel={() => setSaveAsTemplateDialog({ status: 'closed' })}
+      />
+
+      <InputDialog
+        open={newTemplateOpen}
+        title="New template"
+        description="Create a new empty template under the templates directory."
+        label="Template path"
+        placeholder="router.yml"
+        confirmLabel="Create template"
+        validate={templatePathValidator}
+        onConfirm={handleNewTemplateSubmit}
+        onCancel={() => setNewTemplateOpen(false)}
       />
 
       <ConfirmDialog
@@ -485,6 +728,67 @@ function validateEntryName(value: string, kind: CreateKind): string | null {
 }
 
 /**
+ * Validate a directory path used as a "move to" destination. The
+ * empty string is allowed and means "the data root". Each segment is
+ * validated against the same rules as `validateEntryName` (minus the
+ * .yml/.yaml extension constraint, since these are directory names).
+ */
+function validateRelativeDirPath(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null; // empty = root, allowed
+  if (trimmed.startsWith('/') || trimmed.includes('\\')) {
+    return 'Path must be relative and use forward slashes.';
+  }
+  if (trimmed.includes('\0')) {
+    return 'Path contains invalid characters.';
+  }
+  const segments = trimmed.split('/').filter((s) => s.length > 0);
+  for (const seg of segments) {
+    if (seg === '.' || seg === '..') {
+      return 'Path cannot contain "." or ".." segments.';
+    }
+  }
+  return null;
+}
+
+/**
+ * Validate a template path entered by the user. Templates always
+ * resolve relative to TEMPLATES_DIR — leading slashes are stripped on
+ * the server but we reject them here for clarity. Must end in .yml or
+ * .yaml; intermediate directories are allowed.
+ */
+function validateTemplatePath(value: string): string | null {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  if (trimmed.startsWith('/') || trimmed.includes('\\')) {
+    return 'Path must be relative and use forward slashes.';
+  }
+  if (trimmed.includes('\0')) {
+    return 'Path contains invalid characters.';
+  }
+  const segments = trimmed.split('/').filter((s) => s.length > 0);
+  if (segments.length === 0) return 'Enter a template path.';
+  for (const seg of segments) {
+    if (seg === '.' || seg === '..') {
+      return 'Path cannot contain "." or ".." segments.';
+    }
+  }
+  if (!/\.(ya?ml)$/i.test(trimmed)) {
+    return 'Template name must end in .yml or .yaml.';
+  }
+  return null;
+}
+
+/**
+ * Return the parent directory of a POSIX-style relative path. Returns
+ * the empty string for top-level entries (e.g., `web.yml` → ``).
+ */
+function parentOf(path: string): string {
+  const slash = path.lastIndexOf('/');
+  return slash === -1 ? '' : path.slice(0, slash);
+}
+
+/**
  * Node renderer. Click handling is done by the default row wrapper,
  * which calls `node.handleClick` → `onActivate` on single click. We
  * overlay a hover-only trash button on the right side for deletion.
@@ -493,10 +797,16 @@ function FileTreeNode({
   node,
   style,
   dragHandle,
+  templatesWritable,
   onRequestRename,
+  onRequestMove,
+  onRequestSaveAsTemplate,
   onRequestDelete,
 }: NodeRendererProps<TreeEntry> & {
+  templatesWritable: boolean;
   onRequestRename: (entry: TreeEntry) => void;
+  onRequestMove: (entry: TreeEntry) => void;
+  onRequestSaveAsTemplate: (entry: TreeEntry) => void;
   onRequestDelete: (entry: TreeEntry) => void;
 }) {
   const isDirectory = node.data.kind === 'directory';
@@ -592,6 +902,186 @@ function FileTreeNode({
           <Trash2 className="h-3 w-3" aria-hidden="true" />
         </button>
       </Tooltip>
+      <OverflowMenu
+        ariaLabel={`More actions for ${node.data.path}`}
+        items={[
+          {
+            label: 'Move…',
+            icon: <FolderInput className="h-3.5 w-3.5" aria-hidden="true" />,
+            onSelect: () => onRequestMove(node.data),
+          },
+          // "Save as template" is only meaningful for files and only
+          // when the templates directory is writable. We hide the
+          // option entirely otherwise rather than disable it, since a
+          // disabled action with no remediation hint is annoying.
+          ...(node.data.kind === 'file' && templatesWritable
+            ? [
+                {
+                  label: 'Save as template…',
+                  icon: <Save className="h-3.5 w-3.5" aria-hidden="true" />,
+                  onSelect: () => onRequestSaveAsTemplate(node.data),
+                },
+              ]
+            : []),
+        ]}
+      />
     </div>
+  );
+}
+
+// ---------- overflow menu ----------
+
+interface OverflowMenuItem {
+  label: string;
+  icon?: ReactNode;
+  onSelect: () => void;
+}
+
+/**
+ * Tiny portal-rendered dropdown menu used by the file tree row.
+ *
+ * Why a portal: the tree container has `overflow: hidden` (and is
+ * itself virtualized by react-arborist), so a normally-positioned
+ * absolute menu would be clipped by the row. Rendering into
+ * `document.body` and positioning via `getBoundingClientRect` lets the
+ * menu escape both clips.
+ *
+ * Behavior:
+ * - Closes on outside click, Escape, scroll, or window resize. The
+ *   scroll handler is intentionally aggressive — repositioning the
+ *   menu while the user scrolls feels glitchy, and dismissing is the
+ *   normal expectation for transient menus.
+ * - The trigger button uses the same hover-only visibility pattern as
+ *   the rename/delete icons so it doesn't add visual noise to every
+ *   row by default.
+ * - If `items` is empty, the trigger is hidden — there's nothing to
+ *   show.
+ */
+function OverflowMenu({
+  ariaLabel,
+  items,
+}: {
+  ariaLabel: string;
+  items: OverflowMenuItem[];
+}) {
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuId = useId();
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState<{ top: number; left: number } | null>(
+    null,
+  );
+
+  const close = useCallback(() => setOpen(false), []);
+
+  const computePosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return null;
+    const rect = trigger.getBoundingClientRect();
+    // Right-align the menu under the trigger so it doesn't run off the
+    // right edge of a narrow files panel. The menu width is roughly
+    // 192px (`w-48`); we offset by that minus the trigger width.
+    const MENU_WIDTH = 192;
+    const left = Math.max(8, rect.right - MENU_WIDTH);
+    const top = rect.bottom + 4;
+    return { top, left };
+  }, []);
+
+  const handleToggle = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+      if (open) {
+        setOpen(false);
+        return;
+      }
+      const next = computePosition();
+      if (next) setPosition(next);
+      setOpen(true);
+    },
+    [open, computePosition],
+  );
+
+  // Outside click / escape / scroll / resize → close.
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      const menu = menuRef.current;
+      const trigger = triggerRef.current;
+      const target = e.target as Node | null;
+      if (menu && target && menu.contains(target)) return;
+      if (trigger && target && trigger.contains(target)) return;
+      close();
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    const handleScroll = () => close();
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('keydown', handleKey);
+    window.addEventListener('scroll', handleScroll, true);
+    window.addEventListener('resize', handleScroll);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('keydown', handleKey);
+      window.removeEventListener('scroll', handleScroll, true);
+      window.removeEventListener('resize', handleScroll);
+    };
+  }, [open, close]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <>
+      <Tooltip content="More actions">
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={handleToggle}
+          aria-label={ariaLabel}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-controls={open ? menuId : undefined}
+          className={`ml-1 flex h-4 w-4 items-center justify-center rounded text-neutral-500 hover:text-neutral-100 ${
+            open ? 'visible text-neutral-100' : 'invisible group-hover:visible'
+          }`}
+        >
+          <Ellipsis className="h-3 w-3" aria-hidden="true" />
+        </button>
+      </Tooltip>
+      {open &&
+        position &&
+        createPortal(
+          <div
+            ref={menuRef}
+            id={menuId}
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: position.top,
+              left: position.left,
+            }}
+            className="z-50 w-48 overflow-hidden rounded-md border border-neutral-700 bg-neutral-900 py-1 text-sm text-neutral-100 shadow-xl"
+          >
+            {items.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                role="menuitem"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  close();
+                  item.onSelect();
+                }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-neutral-800"
+              >
+                {item.icon && <span className="shrink-0">{item.icon}</span>}
+                <span className="truncate">{item.label}</span>
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }

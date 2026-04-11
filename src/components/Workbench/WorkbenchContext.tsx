@@ -31,8 +31,10 @@ import {
   ApiClientError,
   copyTemplate,
   createEntry,
+  createTemplate,
   deleteEntry,
   fetchFile,
+  fetchTemplates,
   fetchTree,
   renameEntry,
   saveFile,
@@ -123,6 +125,18 @@ interface WorkbenchState {
    */
   renamePath: (sourcePath: string, destinationPath: string) => Promise<void>;
   copyTemplateToData: (body: CopyTemplateRequest) => Promise<void>;
+  /**
+   * Whether the templates directory is writable. Driven by the server's
+   * `TEMPLATES_READONLY` flag and refreshed on workbench mount. The UI
+   * uses this to gate "save as template" affordances. `null` means we
+   * haven't checked yet (treat as not writable for safety).
+   */
+  templatesWritable: boolean | null;
+  /**
+   * Save arbitrary content as a new template under the templates root.
+   * Throws on failure (including 403 when templates are read-only).
+   */
+  saveAsTemplate: (templatePath: string, content: string) => Promise<void>;
 
   // Editor integration
   registerEditor: (
@@ -134,6 +148,13 @@ interface WorkbenchState {
 const LAYOUT_STORAGE_KEY = 'traefik-workbench:layout';
 const SESSION_STORAGE_KEY = 'traefik-workbench:session';
 const SESSION_SAVE_DEBOUNCE_MS = 300;
+/**
+ * Viewport width (px) below which the right "Structure" pane is
+ * collapsed by default on first visit. Above this, the pane stays
+ * expanded. Once the user manually toggles it the persisted value
+ * always wins, regardless of viewport size.
+ */
+const SMALL_SCREEN_BREAKPOINT_PX = 1024;
 
 /** Default and clamp ranges for side-pane widths (pixels). */
 export const LAYOUT_DEFAULTS = {
@@ -279,6 +300,9 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [treeEntries, setTreeEntries] = useState<TreeEntry[]>([]);
   const [treeLoading, setTreeLoading] = useState<boolean>(true);
   const [treeError, setTreeError] = useState<string | null>(null);
+  const [templatesWritable, setTemplatesWritable] = useState<boolean | null>(
+    null,
+  );
 
   // Hydrate openFiles + activePath from localStorage on first render so
   // navigating to /settings and back (or a hard reload) doesn't lose
@@ -336,7 +360,18 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const persisted = readPersistedLayout();
     if (persisted.leftCollapsed) setLeftCollapsed(true);
-    if (persisted.rightCollapsed) setRightCollapsed(true);
+    if (persisted.rightCollapsed) {
+      setRightCollapsed(true);
+    } else if (
+      persisted.rightCollapsed === undefined &&
+      typeof window !== 'undefined' &&
+      window.innerWidth < SMALL_SCREEN_BREAKPOINT_PX
+    ) {
+      // First visit on a narrow viewport — collapse the structure pane
+      // so the editor has room to breathe. Persisted preferences (true
+      // *or* false) always win once the user has interacted.
+      setRightCollapsed(true);
+    }
     if (typeof persisted.leftWidth === 'number') {
       setLeftWidthState(
         clamp(
@@ -463,6 +498,27 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void reloadTree();
   }, [reloadTree]);
+
+  // Probe whether templates are writable on mount. Failures (e.g.
+  // missing templates dir) leave `writable` as false — the UI then
+  // hides the save-as-template affordances. We deliberately don't
+  // surface a toast here: this is background metadata, not a user
+  // action.
+  useEffect(() => {
+    let cancelled = false;
+    fetchTemplates()
+      .then((response) => {
+        if (cancelled) return;
+        setTemplatesWritable(response.writable);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTemplatesWritable(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ---------- file operations ----------
 
@@ -767,6 +823,22 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     [reloadTree, openFile],
   );
 
+  const saveAsTemplate = useCallback(
+    async (templatePath: string, content: string) => {
+      await createTemplate(templatePath, content);
+      // Templates list is fetched lazily by the dialog, so there's no
+      // shared cache to invalidate. We *do* re-probe writability — if
+      // an admin flipped the flag at runtime this keeps the UI honest.
+      try {
+        const response = await fetchTemplates();
+        setTemplatesWritable(response.writable);
+      } catch {
+        // Ignore — the create call already succeeded.
+      }
+    },
+    [],
+  );
+
   // ---------- editor bridge ----------
 
   const registerEditor = useCallback(
@@ -820,6 +892,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       deletePath,
       renamePath,
       copyTemplateToData,
+      templatesWritable,
+      saveAsTemplate,
       registerEditor,
       scrollToLine,
     }),
@@ -858,6 +932,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       deletePath,
       renamePath,
       copyTemplateToData,
+      templatesWritable,
+      saveAsTemplate,
       registerEditor,
       scrollToLine,
     ],

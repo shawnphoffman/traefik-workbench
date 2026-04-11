@@ -9,8 +9,9 @@
 import type {
   TreeEntry,
   FileContentResponse,
-  TemplateEntry,
+  TemplatesIndexResponse,
   CreateEntryRequest,
+  CreateTemplateRequest,
   CopyTemplateRequest,
   RenameEntryRequest,
   ApiError,
@@ -146,16 +147,33 @@ export async function renameEntry(
 
 // ---------- templates ----------
 
-export async function fetchTemplates(): Promise<TemplateEntry[]> {
+export async function fetchTemplates(): Promise<TemplatesIndexResponse> {
   const res = await fetch('/api/templates');
-  const body = await parseJsonOrThrow<{ entries: TemplateEntry[] }>(res);
-  return body.entries;
+  return parseJsonOrThrow<TemplatesIndexResponse>(res);
 }
 
 export async function copyTemplate(
   body: CopyTemplateRequest,
 ): Promise<void> {
   const res = await fetch('/api/templates', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  await parseJsonOrThrow<{ ok: true }>(res);
+}
+
+/**
+ * Create a new template file under TEMPLATES_DIR. Will 403 unless the
+ * server was started with `TEMPLATES_READONLY=false`.
+ */
+export async function createTemplate(
+  templatePath: string,
+  content: string,
+): Promise<void> {
+  const url = `/api/templates/${encodeSegments(templatePath)}`;
+  const body: CreateTemplateRequest = { content };
+  const res = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),

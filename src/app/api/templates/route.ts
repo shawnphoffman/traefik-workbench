@@ -16,15 +16,24 @@ import {
   resolveDataPath,
   resolveTemplatePath,
   TEMPLATES_DIR,
+  TEMPLATES_READONLY,
 } from '@/lib/paths';
 import { listTemplateFiles, copyFile } from '@/lib/fs';
 import { errorResponse, jsonError } from '@/lib/api-errors';
-import type { CopyTemplateRequest, TemplateEntry } from '@/types';
+import type {
+  CopyTemplateRequest,
+  TemplateEntry,
+  TemplatesIndexResponse,
+} from '@/types';
 
 export async function GET() {
   try {
     const entries: TemplateEntry[] = await listTemplateFiles(TEMPLATES_DIR);
-    return Response.json({ entries });
+    const body: TemplatesIndexResponse = {
+      entries,
+      writable: !TEMPLATES_READONLY,
+    };
+    return Response.json(body);
   } catch (err) {
     return errorResponse(err);
   }
