@@ -132,6 +132,8 @@ interface WorkbenchState {
 }
 
 const LAYOUT_STORAGE_KEY = 'traefik-workbench:layout';
+const SESSION_STORAGE_KEY = 'traefik-workbench:session';
+const SESSION_SAVE_DEBOUNCE_MS = 300;
 
 /** Default and clamp ranges for side-pane widths (pixels). */
 export const LAYOUT_DEFAULTS = {
@@ -167,6 +169,54 @@ function readPersistedLayout(): PersistedLayout {
     return parsed as PersistedLayout;
   } catch {
     return {};
+  }
+}
+
+/**
+ * On-disk shape of the persisted editor session. We snapshot just
+ * enough to rehydrate the open tabs and active selection — transient
+ * fields like `loading` / `error` are omitted because they only
+ * describe an in-flight request that no longer exists after a reload.
+ *
+ * Stored in localStorage so it survives both hard reloads and
+ * client-side navigation away from the workbench (e.g. /settings),
+ * since the WorkbenchProvider is unmounted on route change.
+ */
+interface PersistedSession {
+  openFiles: Array<{ path: string; content: string; savedContent: string }>;
+  activePath: string | null;
+}
+
+function readPersistedSession(): PersistedSession | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      !Array.isArray((parsed as PersistedSession).openFiles)
+    ) {
+      return null;
+    }
+    const candidate = parsed as PersistedSession;
+    // Defensive shape validation: drop any entry that doesn't look like
+    // an OpenFile snapshot. A corrupt entry would otherwise wedge the
+    // editor by giving Monaco an undefined model value.
+    const openFiles = candidate.openFiles.filter(
+      (f): f is { path: string; content: string; savedContent: string } =>
+        !!f &&
+        typeof f === 'object' &&
+        typeof (f as { path?: unknown }).path === 'string' &&
+        typeof (f as { content?: unknown }).content === 'string' &&
+        typeof (f as { savedContent?: unknown }).savedContent === 'string',
+    );
+    const activePath =
+      typeof candidate.activePath === 'string' ? candidate.activePath : null;
+    return { openFiles, activePath };
+  } catch {
+    return null;
   }
 }
 
@@ -230,8 +280,35 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const [treeLoading, setTreeLoading] = useState<boolean>(true);
   const [treeError, setTreeError] = useState<string | null>(null);
 
-  const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
-  const [activePath, setActivePath] = useState<string | null>(null);
+  // Hydrate openFiles + activePath from localStorage on first render so
+  // navigating to /settings and back (or a hard reload) doesn't lose
+  // unsaved buffers. We do this in the lazy initializer so the very
+  // first paint already has the rehydrated state — no flash of empty
+  // tabs followed by an effect-driven restore.
+  const [openFiles, setOpenFiles] = useState<OpenFile[]>(() => {
+    const persisted = readPersistedSession();
+    if (!persisted) return [];
+    return persisted.openFiles.map((f) => ({
+      path: f.path,
+      content: f.content,
+      savedContent: f.savedContent,
+      loading: false,
+      error: null,
+    }));
+  });
+  const [activePath, setActivePath] = useState<string | null>(() => {
+    const persisted = readPersistedSession();
+    if (!persisted) return null;
+    // Only honor activePath if the file is actually in the rehydrated
+    // tab list — otherwise we'd point at a ghost.
+    if (
+      persisted.activePath &&
+      persisted.openFiles.some((f) => f.path === persisted.activePath)
+    ) {
+      return persisted.activePath;
+    }
+    return persisted.openFiles[0]?.path ?? null;
+  });
   const [pendingClosePath, setPendingClosePath] = useState<string | null>(
     null,
   );
@@ -297,6 +374,40 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       // Ignore quota / private-mode errors — layout is a nice-to-have.
     }
   }, [leftCollapsed, rightCollapsed, leftWidth, rightWidth]);
+
+  // Persist the editor session (open tabs + active selection + buffer
+  // contents) so the workbench survives navigation to /settings and
+  // back without losing unsaved edits. Debounced because every
+  // keystroke updates `openFiles` and we don't want to thrash
+  // localStorage on each keypress. Loading entries are skipped — we
+  // don't want to checkpoint a half-fetched empty buffer that would
+  // shadow the real file on rehydration.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handle = setTimeout(() => {
+      const payload: PersistedSession = {
+        openFiles: openFiles
+          .filter((f) => !f.loading)
+          .map((f) => ({
+            path: f.path,
+            content: f.content,
+            savedContent: f.savedContent,
+          })),
+        activePath,
+      };
+      try {
+        window.localStorage.setItem(
+          SESSION_STORAGE_KEY,
+          JSON.stringify(payload),
+        );
+      } catch {
+        // Quota exceeded / private mode — drop the snapshot. The user
+        // will lose their session on the next reload but the live tab
+        // keeps working.
+      }
+    }, SESSION_SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(handle);
+  }, [openFiles, activePath]);
 
   const toggleLeft = useCallback(() => setLeftCollapsed((v) => !v), []);
   const toggleRight = useCallback(() => setRightCollapsed((v) => !v), []);

@@ -3,12 +3,16 @@
 /**
  * Drives Claude-backed validation diagnostics into Monaco markers.
  *
- * Trigger model: piggy-back on the existing edit cycle. Whenever the
- * `content` changes, schedule a longer (1500 ms) idle timer; if no
- * further edits arrive, fire `/api/ai/validate` and push the result
- * into the Monaco model via `setModelMarkers(model, 'claude', ...)`.
- * Any newer edit cancels the in-flight request through an
- * AbortController so we never apply stale diagnostics.
+ * Trigger model:
+ *  - Live mode: piggy-back on the existing edit cycle. Whenever the
+ *    `content` changes, schedule a longer (1500 ms) idle timer; if no
+ *    further edits arrive, fire `/api/ai/validate` and push the result
+ *    into the Monaco model via `setModelMarkers(model, 'claude', ...)`.
+ *  - Manual mode (`live: false`): the debounce effect is suspended.
+ *    Callers drive a one-shot pass via the returned `validate()`.
+ *
+ * Either path goes through the same `runValidation` core, so the state
+ * machine and marker handling stay identical regardless of trigger.
  *
  * The hook fails closed: any error path clears the `claude` markers
  * (so an error can't leave stale red squigglies behind) and surfaces
@@ -16,7 +20,7 @@
  * as a red tooltip.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { aiValidate, ApiClientError } from '@/lib/api-client';
 import type { Diagnostic } from '@/lib/ai/types';
@@ -34,6 +38,12 @@ export type ValidationState =
 export interface UseAiValidationOptions {
   /** Master enable; the hook is a no-op when false. */
   enabled: boolean;
+  /**
+   * When true, the hook auto-validates on edit (debounced). When false,
+   * the debounce is suspended and validation only fires when the
+   * caller invokes the returned `validate()`.
+   */
+  live: boolean;
   activePath: string | null;
   content: string;
   workspacePaths: string[];
@@ -45,6 +55,12 @@ export interface UseAiValidationOptions {
    */
   editor: import('monaco-editor').editor.IStandaloneCodeEditor | null;
   monaco: typeof import('monaco-editor') | null;
+}
+
+export interface UseAiValidationResult {
+  state: ValidationState;
+  /** Manually fire one validation pass against the current buffer. */
+  validate: () => Promise<void>;
 }
 
 // Internal state — does NOT include the derived `disabled` case.
@@ -60,17 +76,101 @@ type InternalState =
 
 export function useAiValidation({
   enabled,
+  live,
   activePath,
   content,
   workspacePaths,
   editor,
   monaco,
-}: UseAiValidationOptions): ValidationState {
+}: UseAiValidationOptions): UseAiValidationResult {
   const [state, setState] = useState<InternalState>({ kind: 'idle' });
   const abortRef = useRef<AbortController | null>(null);
 
   const inactive =
     !enabled || !editor || !monaco || activePath == null;
+
+  // Latest-args ref so the manual `validate()` can be a stable
+  // useCallback (no per-render identity churn) while still seeing the
+  // newest content / paths / monaco refs at call time. Updated in an
+  // effect, not during render, to satisfy the react-hooks/refs rule.
+  const argsRef = useRef({
+    enabled,
+    activePath,
+    content,
+    workspacePaths,
+    editor,
+    monaco,
+  });
+  useEffect(() => {
+    argsRef.current = {
+      enabled,
+      activePath,
+      content,
+      workspacePaths,
+      editor,
+      monaco,
+    };
+  });
+
+  // Single source of truth for "do one validation pass". Used by both
+  // the live debounce effect and the manual `validate()` callback so
+  // the state machine, marker handling, and error paths stay identical.
+  const runValidation = useCallback(async (signal: AbortSignal) => {
+    const args = argsRef.current;
+    if (
+      !args.enabled ||
+      !args.editor ||
+      !args.monaco ||
+      args.activePath == null
+    ) {
+      return;
+    }
+    const ed = args.editor;
+    const mc = args.monaco;
+    const path = args.activePath;
+    setState({ kind: 'pending' });
+    try {
+      const response = await aiValidate(
+        {
+          activePath: path,
+          content: args.content,
+          workspacePaths: args.workspacePaths,
+        },
+        signal,
+      );
+      if (signal.aborted) return;
+      if (!response.enabled) {
+        // The route says AI is off; surface as idle. The outer
+        // `inactive` flag will catch the next render anyway.
+        setState({ kind: 'idle' });
+        return;
+      }
+      const model = ed.getModel();
+      if (!model) return;
+      mc.editor.setModelMarkers(
+        model,
+        MARKER_OWNER,
+        response.diagnostics.map((d) => toMarker(mc, d)),
+      );
+      setState({ kind: 'ok', count: response.diagnostics.length });
+    } catch (err) {
+      if (signal.aborted) return;
+      // AbortError is expected when a newer edit lands; ignore.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      // Clear stale markers so the gutter doesn't lie.
+      const model = ed.getModel();
+      if (model) {
+        mc.editor.setModelMarkers(model, MARKER_OWNER, []);
+      }
+      const message =
+        err instanceof ApiClientError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      setState({ kind: 'error', message });
+    }
+  }, []);
 
   // Side effect: clear any stale `claude` markers whenever the hook
   // becomes inactive (master switch off, file closed, editor unmounted).
@@ -85,74 +185,42 @@ export function useAiValidation({
     }
   }, [inactive, editor, monaco]);
 
+  // Live debounce. Suspended when `live` is false — manual `validate()`
+  // is the only path to a request in that mode.
   useEffect(() => {
-    if (inactive) return;
-    // Narrow the optional refs for the closures below — `inactive`
-    // already guarantees these are non-null.
-    const ed = editor!;
-    const mc = monaco!;
-    const path = activePath!;
-
+    if (inactive || !live) return;
     const handle = setTimeout(() => {
-      const controller = new AbortController();
       abortRef.current?.abort();
+      const controller = new AbortController();
       abortRef.current = controller;
-      setState({ kind: 'pending' });
-
-      void aiValidate(
-        { activePath: path, content, workspacePaths },
-        controller.signal,
-      )
-        .then((response) => {
-          if (controller.signal.aborted) return;
-          if (!response.enabled) {
-            // The route says AI is off; surface as idle. The outer
-            // `inactive` flag will catch the next render anyway.
-            setState({ kind: 'idle' });
-            return;
-          }
-          const model = ed.getModel();
-          if (!model) return;
-          mc.editor.setModelMarkers(
-            model,
-            MARKER_OWNER,
-            response.diagnostics.map((d) => toMarker(mc, d)),
-          );
-          setState({ kind: 'ok', count: response.diagnostics.length });
-        })
-        .catch((err) => {
-          if (controller.signal.aborted) return;
-          // AbortError is expected when a newer edit lands; ignore.
-          if (err instanceof DOMException && err.name === 'AbortError') return;
-          // Clear stale markers so the gutter doesn't lie.
-          const model = ed.getModel();
-          if (model) {
-            mc.editor.setModelMarkers(model, MARKER_OWNER, []);
-          }
-          const message =
-            err instanceof ApiClientError
-              ? err.message
-              : err instanceof Error
-                ? err.message
-                : String(err);
-          setState({ kind: 'error', message });
-        });
+      void runValidation(controller.signal);
     }, IDLE_DEBOUNCE_MS);
 
     return () => {
       clearTimeout(handle);
     };
-  }, [inactive, activePath, content, workspacePaths, editor, monaco]);
+  }, [inactive, live, activePath, content, workspacePaths, runValidation]);
 
   // Abort any in-flight request on unmount.
   useEffect(() => {
     return () => abortRef.current?.abort();
   }, []);
 
+  const validate = useCallback(async () => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    await runValidation(controller.signal);
+  }, [runValidation]);
+
+  let publicState: ValidationState;
   if (inactive) {
-    return enabled ? { kind: 'idle' } : { kind: 'disabled' };
+    publicState = enabled ? { kind: 'idle' } : { kind: 'disabled' };
+  } else {
+    publicState = state;
   }
-  return state;
+
+  return { state: publicState, validate };
 }
 
 function toMarker(

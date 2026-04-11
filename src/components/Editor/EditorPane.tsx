@@ -32,6 +32,8 @@ import {
   CircleDot,
   FileText,
   Loader2,
+  Sparkles,
+  Wand2,
   type LucideProps,
 } from 'lucide-react';
 import type { OnMount } from '@monaco-editor/react';
@@ -66,6 +68,19 @@ const MonacoEditor = dynamic(
   },
 );
 
+const LIVE_AI_STORAGE_KEY = 'traefik-workbench:live-ai';
+
+function readPersistedLiveAi(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    const raw = window.localStorage.getItem(LIVE_AI_STORAGE_KEY);
+    if (raw === 'false') return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 export function EditorPane() {
   const { updateContent, saveActive, closeActive, registerEditor, savingPaths } =
     useWorkbench();
@@ -76,6 +91,22 @@ export function EditorPane() {
   const { status: aiStatus } = useAiStatus();
   const workspacePaths = useWorkspaceFilePaths();
 
+  // Live-AI master toggle. Owned here (not in server settings) because
+  // it's a per-browser convenience: a user might want quiet mode in one
+  // tab while leaving the underlying feature flags on. Persisted to
+  // localStorage so it survives reloads and route navigation.
+  const [liveAi, setLiveAi] = useState<boolean>(readPersistedLiveAi);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(LIVE_AI_STORAGE_KEY, String(liveAi));
+    } catch {
+      // Quota / private mode — fall through; the toggle still works
+      // for the current session.
+    }
+  }, [liveAi]);
+  const toggleLiveAi = useCallback(() => setLiveAi((v) => !v), []);
+
   // Live editor + monaco namespace, captured in handleMount. State
   // (not refs) so the effects below re-run once they become available.
   const [editorInstance, setEditorInstance] =
@@ -84,12 +115,14 @@ export function EditorPane() {
     useState<typeof import('monaco-editor') | null>(null);
 
   // Provider registration is keyed off the AI master enable + completion
-  // feature toggle. Re-registering on every workspace-paths change would
-  // tear down the in-flight provider; instead we keep one provider and
-  // push the latest context into it via update().
+  // feature toggle + the live-AI switch. Re-registering on every
+  // workspace-paths change would tear down the in-flight provider;
+  // instead we keep one provider and push the latest context into it
+  // via update(). Toggling live-AI off disposes the provider entirely
+  // so the user gets *no* automatic Claude calls in the background.
   const providersRef = useRef<RegisteredAiProviders | null>(null);
   const completionEnabled =
-    aiStatus.enabled && aiStatus.features.completion;
+    aiStatus.enabled && aiStatus.features.completion && liveAi;
 
   useEffect(() => {
     if (!monacoInstance) return;
@@ -114,8 +147,9 @@ export function EditorPane() {
     };
   }, []);
 
-  const validation = useAiValidation({
+  const { state: validationState, validate: validateActive } = useAiValidation({
     enabled: aiStatus.enabled && aiStatus.features.validation,
+    live: liveAi,
     activePath: active?.path ?? null,
     content: active?.content ?? '',
     workspacePaths,
@@ -169,6 +203,25 @@ export function EditorPane() {
     }
   }, [active, aiStatus.enabled, aiStatus.features.format, formatActive, toast]);
 
+  const handleValidateActive = useCallback(async () => {
+    if (!active) return;
+    if (!aiStatus.enabled || !aiStatus.features.validation) {
+      toast({
+        kind: 'error',
+        title: 'AI validate unavailable',
+        message: 'Enable AI validate in Settings first.',
+      });
+      return;
+    }
+    await validateActive();
+  }, [
+    active,
+    aiStatus.enabled,
+    aiStatus.features.validation,
+    validateActive,
+    toast,
+  ]);
+
   const handleMount = useCallback<OnMount>(
     (ed, monaco) => {
       registerEditor(ed);
@@ -216,11 +269,20 @@ export function EditorPane() {
       <StatusBar
         active={active}
         saving={activeSaving}
+        aiEnabled={aiStatus.enabled}
+        liveAi={liveAi}
+        onToggleLiveAi={toggleLiveAi}
+        canFormat={aiStatus.enabled && aiStatus.features.format}
+        canValidate={aiStatus.enabled && aiStatus.features.validation}
+        formatPending={formatState.kind === 'pending'}
+        validatePending={validationState.kind === 'pending'}
+        onFormat={handleFormatActive}
+        onValidate={handleValidateActive}
         aiPill={
           <AiStatusPill
             enabled={aiStatus.enabled}
             model={aiStatus.model}
-            validation={validation}
+            validation={validationState}
             format={formatState}
           />
         }
@@ -297,10 +359,28 @@ type StatusTone = 'idle' | 'dirty' | 'saving' | 'error' | 'saved';
 function StatusBar({
   active,
   saving,
+  aiEnabled,
+  liveAi,
+  onToggleLiveAi,
+  canFormat,
+  canValidate,
+  formatPending,
+  validatePending,
+  onFormat,
+  onValidate,
   aiPill,
 }: {
   active: ReturnType<typeof useActiveFile>;
   saving: boolean;
+  aiEnabled: boolean;
+  liveAi: boolean;
+  onToggleLiveAi: () => void;
+  canFormat: boolean;
+  canValidate: boolean;
+  formatPending: boolean;
+  validatePending: boolean;
+  onFormat: () => void;
+  onValidate: () => void;
   aiPill?: React.ReactNode;
 }) {
   let status: { label: string; tone: StatusTone };
@@ -321,6 +401,11 @@ function StatusBar({
   const tone = STATUS_TONES[status.tone];
   const Icon = tone.Icon;
 
+  // The manual action buttons only make sense when there's a file to
+  // act on, AI is enabled, and live mode is off (live mode handles
+  // validation automatically and format already has a keybinding).
+  const showManualButtons = aiEnabled && !liveAi && active != null;
+
   return (
     <div className="flex items-center justify-between gap-2 border-t border-neutral-800 bg-neutral-950 px-3 py-1 text-xs">
       <span className={`flex items-center gap-1.5 ${tone.className}`}>
@@ -333,10 +418,103 @@ function StatusBar({
         <span>{status.label}</span>
       </span>
       <div className="flex min-w-0 items-center gap-2">
+        {showManualButtons && (
+          <>
+            <ManualAiButton
+              label="Format"
+              icon={Wand2}
+              pending={formatPending}
+              disabled={!canFormat}
+              onClick={onFormat}
+              tooltip={
+                canFormat
+                  ? 'Format with Claude (Cmd/Ctrl+Shift+F)'
+                  : 'Enable AI format in Settings first'
+              }
+            />
+            <ManualAiButton
+              label="Validate"
+              icon={Sparkles}
+              pending={validatePending}
+              disabled={!canValidate}
+              onClick={onValidate}
+              tooltip={
+                canValidate
+                  ? 'Validate with Claude'
+                  : 'Enable AI validate in Settings first'
+              }
+            />
+          </>
+        )}
+        {aiEnabled && (
+          <LiveAiToggle live={liveAi} onToggle={onToggleLiveAi} />
+        )}
         {aiPill}
         <span className="truncate text-neutral-500">{active?.path ?? ''}</span>
       </div>
     </div>
+  );
+}
+
+function LiveAiToggle({
+  live,
+  onToggle,
+}: {
+  live: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      role="switch"
+      aria-checked={live}
+      title={
+        live
+          ? 'Live AI is on — Claude runs as you type. Click to switch to manual.'
+          : 'Live AI is off — use the Format/Validate buttons to run Claude on demand. Click to re-enable live.'
+      }
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+        live
+          ? 'border-sky-800/60 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20'
+          : 'border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-neutral-600 hover:text-neutral-200'
+      }`}
+    >
+      Live AI: {live ? 'on' : 'off'}
+    </button>
+  );
+}
+
+function ManualAiButton({
+  label,
+  icon: Icon,
+  pending,
+  disabled,
+  onClick,
+  tooltip,
+}: {
+  label: string;
+  icon: ComponentType<LucideProps>;
+  pending: boolean;
+  disabled: boolean;
+  onClick: () => void;
+  tooltip: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled || pending}
+      title={tooltip}
+      className="inline-flex items-center gap-1 rounded-full border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[11px] font-medium text-neutral-300 transition-colors hover:border-sky-800 hover:bg-sky-950 hover:text-sky-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-neutral-700 disabled:hover:bg-neutral-900 disabled:hover:text-neutral-300"
+    >
+      {pending ? (
+        <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+      ) : (
+        <Icon className="h-3 w-3" aria-hidden="true" />
+      )}
+      {label}
+    </button>
   );
 }
 
