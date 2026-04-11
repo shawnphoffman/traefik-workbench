@@ -1,6 +1,25 @@
-# traefik-workbench
+<p align="center">
+  <img src="public/logo.svg" alt="Træfik Workbench logo" width="120" />
+</p>
 
-A lightweight, self-hosted, web-based YAML editor with a 3-pane interface for managing Traefik configuration files without SSH.
+<h1 align="center">Træfik Workbench</h1>
+
+<p align="center">
+  A lightweight, self-hosted YAML editor for Traefik dynamic config — file tree, Monaco editor, live structure outline, and an opt-in Claude assist layer. Edit your routers, services, and middlewares from a browser instead of SSH.
+</p>
+
+## AI Contribution Disclosure
+![Level 5](https://badgen.net/badge/AI%20Assistance/Level%205?color=orange)
+> [!IMPORTANT]
+> This project uses [Level 5 AI assistance](https://www.visidata.org/blog/2026/ai/) — AI generated the majority of the code, but the human was involved at every step, reviewing each line with full attention. The human understands every algorithm and has logically validated how it all works.
+>
+> **AI Model:** Claude Opus 4
+
+## Screenshots
+
+| Editor | Settings |
+| :----: | :------: |
+| ![Editor](docs/screenshots/editor.png) | ![Settings](docs/screenshots/settings.png) |
 
 ## Features
 
@@ -46,8 +65,7 @@ By default the compose file pulls the published image from `ghcr.io/shawnphoffma
 | Variable             | Default       | Description                                                                                              |
 | -------------------- | ------------- | -------------------------------------------------------------------------------------------------------- |
 | `DATA_DIR`           | `/data`       | Absolute path (inside the container) to the directory of YAML files the workbench can read and write.   |
-| `TEMPLATES_DIR`      | `/templates`  | Absolute path (inside the container) to a directory of template YAML snippets to copy into `DATA_DIR`.  |
-| `TEMPLATES_READONLY` | `true`        | Set to `false` to allow writes to `TEMPLATES_DIR`. Defaults to read-only.                                |
+| `TEMPLATES_DIR`      | `/templates`  | Absolute path (inside the container) to a directory of template YAML snippets to copy into `DATA_DIR`. Mount read-write to allow editing templates from the UI. |
 | `CONFIG_DIR`         | `/config`     | Absolute path (inside the container) where the workbench persists its settings file (`settings.json`).  |
 | `ANTHROPIC_API_KEY`  | _(unset)_     | Optional fallback for the Claude API key. Used only when no key is set from the Settings page. Docker-secret friendly. |
 | `PORT`               | `3000`        | Port the Next.js server listens on inside the container.                                                 |
@@ -84,7 +102,7 @@ docker build -t traefik-workbench .
 docker run -d \
   -p 3000:3000 \
   -v /etc/traefik/dynamic:/data \
-  -v "$PWD/templates:/templates:ro" \
+  -v "$PWD/templates:/templates" \
   --name traefik-workbench \
   traefik-workbench
 ```
