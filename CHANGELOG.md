@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/shawnphoffman/traefik-workbench/compare/v0.2.1...v0.2.2) (2026-04-11)
+
+
+### Bug Fixes
+
+* **ci:** switch release-please to simple release-type to fix component mismatch ([d8ff70f](https://github.com/shawnphoffman/traefik-workbench/commit/d8ff70f47b01815e4b47dbf8d350fc00db2f08d1))
+
 ## [0.2.1](https://github.com/shawnphoffman/traefik-workbench/compare/v0.2.0...v0.2.1) (2026-04-11)
 
 
