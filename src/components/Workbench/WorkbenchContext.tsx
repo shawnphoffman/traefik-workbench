@@ -538,8 +538,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   const requestCloseFile = useCallback(
     (path: string) => {
       // Read the latest open-files snapshot via an updater so this
-      // doesn't close over stale state (Cmd+W bound in Monaco captures
-      // the callback at mount time).
+      // doesn't close over stale state (Cmd+Shift+W bound in Monaco
+      // captures the callback at mount time).
       let dirty = false;
       setOpenFiles((prev) => {
         const file = prev.find((f) => f.path === path);

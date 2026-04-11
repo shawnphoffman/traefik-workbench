@@ -10,12 +10,15 @@
  * Editor bridge:
  * - On mount, we register the editor instance with the Workbench
  *   context so the YAML tree panel can scroll to clicked nodes.
- * - We bind Cmd/Ctrl+S → saveActive() and Cmd/Ctrl+W → closeActive().
- *   Monaco intercepts these only when the editor is focused; outside
- *   the editor the browser gets them first (which is unavoidable for
- *   Cmd+W without an Electron shell). There's intentionally no save-
- *   all shortcut — saving unrelated buffers in a single keystroke is
- *   an anti-pattern that hides per-file failures.
+ * - We bind Cmd/Ctrl+S → saveActive() and Cmd/Ctrl+Shift+W →
+ *   closeActive(). Cmd+W is reserved by the browser (it closes the
+ *   tab and `preventDefault` is ignored on regular pages), so we use
+ *   Cmd+Shift+W as the close shortcut. The Monaco binding only fires
+ *   when the editor has focus, so we ALSO register a window-level
+ *   listener for Cmd+Shift+W so the shortcut works anywhere in the
+ *   page (file tree focus, status bar, etc.). There's intentionally
+ *   no save-all shortcut — saving unrelated buffers in a single
+ *   keystroke is an anti-pattern that hides per-file failures.
  * - We use the `path` prop so Monaco maintains a separate model per
  *   open file — switching tabs preserves undo history per file.
  *
@@ -222,6 +225,28 @@ export function EditorPane() {
     toast,
   ]);
 
+  // Window-level Cmd/Ctrl+Shift+W → close active. The Monaco command
+  // only fires when the editor has focus, so this catches the case
+  // where the user has clicked into the file tree (or anywhere else
+  // on the page) and still wants to close the current tab. We don't
+  // mirror Cmd+S here because Monaco's binding handles "editor is
+  // focused" — the only time you'd want to save without the editor
+  // focused is rare, and the AppHeader save button covers it.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (!e.shiftKey) return;
+      // Use `code` so the shortcut survives non-US keyboard layouts
+      // where `key` may be 'W', 'w', or even a dead-key character.
+      if (e.code !== 'KeyW') return;
+      e.preventDefault();
+      closeActive();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [closeActive]);
+
   const handleMount = useCallback<OnMount>(
     (ed, monaco) => {
       registerEditor(ed);
@@ -234,10 +259,15 @@ export function EditorPane() {
       ed.addCommand(KeyMod.CtrlCmd | KeyCode.KeyS, () => {
         void handleSaveActive();
       });
-      // Cmd/Ctrl+W → close active tab
-      ed.addCommand(KeyMod.CtrlCmd | KeyCode.KeyW, () => {
-        closeActive();
-      });
+      // Cmd/Ctrl+Shift+W → close active tab. Cmd+W is browser-reserved
+      // so we use Shift here; a matching window-level listener (below)
+      // makes the shortcut work outside the editor too.
+      ed.addCommand(
+        KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyW,
+        () => {
+          closeActive();
+        },
+      );
       // Cmd/Ctrl+Shift+F → AI format active
       ed.addCommand(
         KeyMod.CtrlCmd | KeyMod.Shift | KeyCode.KeyF,
