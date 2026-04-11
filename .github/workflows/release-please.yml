@@ -1,0 +1,75 @@
+name: Release Please
+
+# Fully hands-off release automation.
+#
+# Flow on every push to main:
+#
+#   1. `release-please-action` inspects the commits since the last
+#      release tag and either opens or updates a single "Release PR"
+#      that bumps package.json + package-lock.json and regenerates
+#      CHANGELOG.md.
+#
+#   2. If a Release PR was created or updated, we enable GitHub's
+#      native auto-merge on it. As soon as required status checks
+#      pass, GitHub squash-merges it for us — no human needed.
+#
+#   3. When the Release PR lands on main, this workflow re-runs on
+#      the squash commit, release-please detects the release commit,
+#      pushes a `v<version>` tag, and publishes a GitHub Release with
+#      the changelog section as the body.
+#
+#   4. The `v*.*.*` tag push triggers the existing `release.yml`
+#      workflow, which builds and pushes the multi-arch Docker image
+#      to GHCR. This workflow does not duplicate that job.
+#
+# Why we need a PAT (RELEASE_PLEASE_TOKEN):
+#
+# Events triggered by the default GITHUB_TOKEN do NOT cascade into
+# further workflow runs (GitHub's anti-recursion safety). That means:
+#   - A PR opened by GITHUB_TOKEN would not run CI, so auto-merge
+#     would stall waiting for status checks that never arrive.
+#   - A tag pushed by GITHUB_TOKEN would not trigger `release.yml`,
+#     so the Docker image would never publish.
+# A PAT (or GitHub App token) with `contents: write` and
+# `pull-requests: write` breaks the loop in both places.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      - name: Enable auto-merge on Release PR
+        # `steps.release.outputs.pr` is the JSON of the release PR that
+        # was just opened or updated (empty string if nothing to do).
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          echo "Enabling auto-merge on release PR #${PR_NUMBER}"
+          gh pr merge "$PR_NUMBER" \
+            --auto \
+            --squash \
+            --repo "${{ github.repository }}"

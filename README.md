@@ -102,6 +102,38 @@ npm run type-check
 
 For local development, copy [`.env.example`](./.env.example) to `.env.local` and point `DATA_DIR` / `TEMPLATES_DIR` at a scratch directory. A `.local-dev/` folder is gitignored and ready to use.
 
+## Releases
+
+Releases are fully automated via [release-please](https://github.com/googleapis/release-please-action):
+
+1. Every push to `main` runs `.github/workflows/release-please.yml`, which either opens or updates a single "Release PR" that bumps `package.json` and regenerates `CHANGELOG.md` based on the [Conventional Commits](https://www.conventionalcommits.org/) history.
+2. The workflow enables GitHub auto-merge on that PR, so it lands on its own once CI passes.
+3. When the PR merges, release-please tags `v<version>` and publishes a GitHub Release with the generated changelog.
+4. The tag push triggers `.github/workflows/release.yml`, which builds and pushes the multi-arch image to `ghcr.io/<owner>/traefik-workbench:<version>`, `:<major>.<minor>`, and `:latest`.
+
+Commit messages must follow Conventional Commits for this to work:
+
+- `feat: …` → minor bump
+- `fix: …` → patch bump
+- `feat!: …` or `BREAKING CHANGE:` footer → (minor while `< 1.0.0`, major after)
+- `docs: …`, `refactor: …`, `perf: …`, `revert: …` → patch bump, appear in the changelog
+- `ci: …`, `build: …`, `test: …`, `chore: …`, `style: …` → hidden from the changelog, no bump
+
+### One-time repo setup
+
+Two knobs have to be flipped by hand because GitHub's security model won't let a workflow configure them on its own:
+
+1. **Create a fine-grained Personal Access Token** scoped to this repository with these permissions:
+   - `Contents`: Read and write
+   - `Pull requests`: Read and write
+   - `Workflows`: Read and write
+
+   Store it as a repository secret named `RELEASE_PLEASE_TOKEN`. A PAT (or GitHub App token) is required because events triggered by the default `GITHUB_TOKEN` do not cascade into further workflow runs — without it, the Release PR's CI would never run and the tag push would never trigger the Docker publish.
+
+2. **Enable "Allow auto-merge"** under `Settings → General → Pull Requests`. This is what lets the workflow call `gh pr merge --auto` on the Release PR.
+
+Once those are in place the whole pipeline is hands-off: push `feat:` / `fix:` commits, and versions, changelogs, GitHub Releases, and Docker images flow out the other end on their own.
+
 ## License
 
 [AGPL-3.0](./LICENSE)
