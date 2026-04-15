@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/shawnphoffman/traefik-workbench/compare/v0.3.1...v0.4.0) (2026-04-15)
+
+
+### Features
+
+* **ci:** publish GitHub Releases as changelog-only records ([d41b5fe](https://github.com/shawnphoffman/traefik-workbench/commit/d41b5fef5de09d1f4ae9742ee7b4408a21264751))
+
 ## [0.3.1](https://github.com/shawnphoffman/traefik-workbench/compare/v0.3.0...v0.3.1) (2026-04-15)
 
 
