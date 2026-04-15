@@ -42,7 +42,7 @@ export function AiStatusPill({
   return (
     <Tooltip content={tooltip} placement="top">
       <span
-        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}
+        className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium ${cls}`}
         aria-label={tooltip}
       >
         {tone === 'thinking' ? (

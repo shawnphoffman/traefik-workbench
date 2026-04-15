@@ -451,8 +451,8 @@ function StatusBar({
   const showManualButtons = aiEnabled && !liveAi && active != null;
 
   return (
-    <div className="flex items-center justify-between gap-2 border-t border-neutral-800 bg-neutral-950 px-3 py-1 text-xs">
-      <span className={`flex items-center gap-1.5 ${tone.className}`}>
+    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-t border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs">
+      <span className={`flex shrink-0 items-center gap-1.5 ${tone.className}`}>
         {Icon && (
           <Icon
             className={`h-3 w-3 ${tone.animate ?? ''}`}
@@ -461,7 +461,7 @@ function StatusBar({
         )}
         <span>{status.label}</span>
       </span>
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
         {showManualButtons && (
           <>
             <ManualAiButton
@@ -524,7 +524,7 @@ function LiveAiToggle({
           ? 'Live AI is on — Claude runs as you type. Click to switch to manual.'
           : 'Live AI is off — use the Format/Validate buttons to run Claude on demand. Click to re-enable live.'
       }
-      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${
         live
           ? 'border-sky-800/60 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20'
           : 'border-neutral-700 bg-neutral-900 text-neutral-400 hover:border-neutral-600 hover:text-neutral-200'
@@ -556,7 +556,7 @@ function ManualAiButton({
       onClick={onClick}
       disabled={disabled || pending}
       title={tooltip}
-      className="inline-flex items-center gap-1 rounded-full border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[11px] font-medium text-neutral-300 transition-colors hover:border-sky-800 hover:bg-sky-950 hover:text-sky-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-neutral-700 disabled:hover:bg-neutral-900 disabled:hover:text-neutral-300"
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-[11px] font-medium text-neutral-300 transition-colors hover:border-sky-800 hover:bg-sky-950 hover:text-sky-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-neutral-700 disabled:hover:bg-neutral-900 disabled:hover:text-neutral-300"
     >
       {pending ? (
         <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
