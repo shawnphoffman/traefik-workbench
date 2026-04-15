@@ -36,6 +36,11 @@ import {
 } from '@/components/Workbench/WorkbenchContext';
 import { useTraefikStatus } from '@/hooks/useTraefikStatus';
 
+// Baked in at build time via next.config.ts. Empty string when unset
+// (e.g. a bespoke build that didn't go through our config) so the
+// header silently omits the badge rather than showing "v".
+const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? '';
+
 export function AppHeader() {
   const { openFiles, activePath, savingPaths, savePath } = useWorkbench();
   const { toast } = useToast();
@@ -81,8 +86,16 @@ export function AppHeader() {
           className="h-7 w-7"
         />
         <div className="flex flex-col leading-tight">
-          <span className="text-sm font-semibold tracking-tight text-neutral-100">
+          <span className="flex items-center gap-1.5 text-sm font-semibold tracking-tight text-neutral-100">
             Tr&aelig;fik Workbench
+            {APP_VERSION && (
+              <span
+                className="rounded-full border border-neutral-800 bg-neutral-900 px-1.5 py-px text-[10px] font-medium tracking-normal text-neutral-400"
+                aria-label={`Version ${APP_VERSION}`}
+              >
+                v{APP_VERSION}
+              </span>
+            )}
           </span>
           <span className="text-[11px] uppercase tracking-wider text-neutral-500">
             YAML configuration editor

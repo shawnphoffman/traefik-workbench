@@ -168,15 +168,29 @@ For local development, copy [`.env.example`](./.env.example) to `.env.local` and
 
 ## Releases
 
-Every push to `main` publishes a fresh multi-arch image to GHCR. There is no version bump, release PR, or GitHub Release ceremony — `.github/workflows/release.yml` builds for `linux/amd64` + `linux/arm64` and pushes these tags:
+Versioning is driven by [release-please](https://github.com/googleapis/release-please) reading [Conventional Commits](https://www.conventionalcommits.org/) on `main`:
 
-- `ghcr.io/<owner>/traefik-workbench:latest` — rolling tip of `main`
-- `ghcr.io/<owner>/traefik-workbench:main` — alternate alias for the same target
-- `ghcr.io/<owner>/traefik-workbench:sha-<short>` — immutable pin for an exact commit (use this in production if you want reproducible deploys)
+- `.github/workflows/release-please.yml` keeps a rolling **Release PR** that bumps `package.json` + `package-lock.json` and regenerates `CHANGELOG.md`. Auto-merge is enabled, so once CI passes the PR squash-lands on its own.
+- No GitHub **Release** is created (`skip-github-release: true`). There are no downloadable release artifacts or release notes pages — the version bump commit + `CHANGELOG.md` are the whole record.
 
-If a runner hangs or the registry hiccups, re-run the workflow from the Actions tab — `release.yml` also exposes a `workflow_dispatch` trigger that rebuilds and republishes the current `main`.
+Every push to `main` (including the release commit) triggers `.github/workflows/release.yml`, which builds a multi-arch image for `linux/amd64` + `linux/arm64` and pushes it to GHCR. The tag scheme depends on whether the push was the release commit (detected by diffing `package.json` against its parent):
 
-`CHANGELOG.md` is a historical artifact from an earlier release-please experiment and is no longer maintained automatically.
+Intermediate pushes:
+
+- `ghcr.io/<owner>/traefik-workbench:main` — rolling tip of `main`
+- `ghcr.io/<owner>/traefik-workbench:sha-<short>` — immutable pin for an exact commit
+
+Release pushes additionally get:
+
+- `ghcr.io/<owner>/traefik-workbench:latest`
+- `ghcr.io/<owner>/traefik-workbench:v<X.Y.Z>`
+- `ghcr.io/<owner>/traefik-workbench:<X.Y.Z>`
+
+The OCI `org.opencontainers.image.version` label and the version pill in the app header both read from the same string: the `package.json` version on release builds, `<version>-main.<short-sha>` on intermediate ones.
+
+A fine-grained PAT named `RELEASE_PLEASE_TOKEN` (with `contents: write` + `pull-requests: write`) is required for the Release PR to trigger CI and auto-merge — the default `GITHUB_TOKEN` can't cascade into further workflow runs.
+
+If a runner hangs or the registry hiccups, re-run `release.yml` from the Actions tab — it also exposes a `workflow_dispatch` trigger for rebuilding the current `main`.
 
 ## License
 

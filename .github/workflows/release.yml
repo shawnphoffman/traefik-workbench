@@ -20,6 +20,57 @@ env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/traefik-workbench
 
 jobs:
+  # Read package.json and decide whether this push is the "chore:
+  # release" commit produced by release-please. If the version differs
+  # from the parent commit's, it's a release and we'll stamp `latest`
+  # / `vX.Y.Z` tags. Otherwise it's a regular main build and we only
+  # get `main` + `sha-<short>` tags.
+  #
+  # This is also where we compute the NEXT_PUBLIC_APP_VERSION string
+  # baked into the client bundle, so the version in the header matches
+  # whatever the Docker tags say.
+  version:
+    name: Compute version
+    runs-on: ubuntu-latest
+    outputs:
+      app_version: ${{ steps.compute.outputs.app_version }}
+      semver: ${{ steps.compute.outputs.semver }}
+      is_release: ${{ steps.compute.outputs.is_release }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Need the parent commit so we can diff package.json.
+          fetch-depth: 2
+
+      - name: Compute
+        id: compute
+        run: |
+          set -euo pipefail
+          SEMVER=$(jq -r .version package.json)
+          # Compare against parent commit; tolerate the initial commit
+          # where HEAD~1 doesn't exist.
+          if PREV=$(git show HEAD~1:package.json 2>/dev/null | jq -r .version 2>/dev/null); then
+            PREV="${PREV:-}"
+          else
+            PREV=""
+          fi
+          SHORT=$(git rev-parse --short HEAD)
+          if [ -n "$PREV" ] && [ "$PREV" != "$SEMVER" ]; then
+            IS_RELEASE=true
+            APP_VERSION="$SEMVER"
+          else
+            IS_RELEASE=false
+            # Between releases we're still "on" the last released
+            # version; append the commit so the header makes it clear
+            # this isn't the clean release build.
+            APP_VERSION="${SEMVER}-main.${SHORT}"
+          fi
+          echo "semver=$SEMVER" >> "$GITHUB_OUTPUT"
+          echo "app_version=$APP_VERSION" >> "$GITHUB_OUTPUT"
+          echo "is_release=$IS_RELEASE" >> "$GITHUB_OUTPUT"
+          echo "Computed: semver=$SEMVER app_version=$APP_VERSION is_release=$IS_RELEASE"
+
   # Build each platform on its own native runner. We deliberately do
   # NOT use QEMU here: emulating arm64 on amd64 has hit SIGILL crashes
   # inside the Next.js / SWC build worker (see commit 8344b59 build),
@@ -28,6 +79,7 @@ jobs:
   # `ubuntu-24.04-arm` label.
   build:
     name: Build (${{ matrix.platform }})
+    needs: [version]
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -59,12 +111,19 @@ jobs:
       # split across native runners — each builder pushes an
       # untagged blob, and the manifest job below stitches the
       # digests into the actual `:latest` / `:main` / `:sha-…` tags.
+      #
+      # NEXT_PUBLIC_APP_VERSION is forwarded as a build-arg and picked
+      # up by the builder stage's `ARG` declaration, so
+      # `process.env.NEXT_PUBLIC_APP_VERSION` is defined when Next.js
+      # runs its build and inlines the value into the client bundle.
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ needs.version.outputs.app_version }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
@@ -87,7 +146,7 @@ jobs:
   # under all the tags the previous workflow used.
   merge:
     name: Publish manifest
-    needs: build
+    needs: [version, build]
     runs-on: ubuntu-latest
     steps:
       - name: Download digests
@@ -107,25 +166,41 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Tags applied on every main build:
-      # - `latest`       — rolling tip of main
-      # - `main`         — same target, alternate alias
-      # - `sha-<short>`  — immutable pin for an exact commit
+      # Tag scheme:
+      # - Always: `main`, `sha-<short>`
+      # - Release commits only: `latest`, `vX.Y.Z`, `X.Y.Z`
+      #
+      # Labels: metadata-action emits the OCI standard labels
+      # (org.opencontainers.image.*) automatically. We override
+      # `image.version` with our computed app_version so the label
+      # matches what the app reports in the header — including the
+      # `-main.<sha>` suffix on intermediate builds.
+      #
+      # DOCKER_METADATA_ANNOTATIONS_LEVELS=index writes the labels
+      # onto the manifest list (index), which is the level
+      # `buildx imagetools create` actually publishes.
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: index
         with:
           images: ${{ env.IMAGE }}
           tags: |
-            type=raw,value=latest
             type=raw,value=main
             type=sha,format=short,prefix=sha-
+            type=raw,value=latest,enable=${{ needs.version.outputs.is_release == 'true' }}
+            type=raw,value=v${{ needs.version.outputs.semver }},enable=${{ needs.version.outputs.is_release == 'true' }}
+            type=raw,value=${{ needs.version.outputs.semver }},enable=${{ needs.version.outputs.is_release == 'true' }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.version.outputs.app_version }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
           docker buildx imagetools create \
             $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(jq -cr '.annotations | map("--annotation " + (. | @sh)) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.IMAGE }}@sha256:%s ' *)
 
       - name: Inspect image

@@ -29,6 +29,14 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV BUILD_STANDALONE=1
 
+# Release version baked into the client bundle. CI sets this to the
+# semver on release commits and `<semver>-main.<sha>` on intermediate
+# builds; local/unset builds fall back to package.json via the
+# next.config.ts default. Declared as an ARG → ENV pair so
+# `process.env.NEXT_PUBLIC_APP_VERSION` is visible to `next build`.
+ARG NEXT_PUBLIC_APP_VERSION=""
+ENV NEXT_PUBLIC_APP_VERSION=$NEXT_PUBLIC_APP_VERSION
+
 RUN npm run build
 
 # ---------- runner ----------

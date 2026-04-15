@@ -1,0 +1,86 @@
+name: Release Please
+
+# Hands-off semver bookkeeping. release-please watches Conventional
+# Commits landing on main and maintains a rolling "Release PR" that
+# bumps package.json + package-lock.json and regenerates CHANGELOG.md.
+# GitHub's native auto-merge is enabled on that PR so it lands on its
+# own once CI passes.
+#
+# Deliberately NOT creating a GitHub Release (skip-github-release is
+# set in release-please-config.json). We only want the version number
+# bump + CHANGELOG — no downloadable release artifacts, no release
+# notes page. The release-commit detection in release.yml reads
+# package.json diffs to decide when to apply the `latest` / `vX.Y.Z`
+# Docker tags, so we don't need a git tag either.
+#
+# A fine-grained PAT (RELEASE_PLEASE_TOKEN) with `contents: write` and
+# `pull-requests: write` is required. Events from the default
+# GITHUB_TOKEN don't cascade into further workflow runs, so a Release
+# PR opened by GITHUB_TOKEN would never run CI and auto-merge would
+# stall forever.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Approve the PR as `github-actions[bot]` (via GITHUB_TOKEN).
+      # This is a different identity from the PAT user that *opened*
+      # the PR (RELEASE_PLEASE_TOKEN), so GitHub's "can't approve your
+      # own PR" rule doesn't apply. Satisfies branch protections that
+      # require approving reviews.
+      #
+      # Caveat: if branch protection demands CODEOWNERS approval and
+      # the bot isn't a code owner, this approval won't count and the
+      # PR will still stall. In that case, add `github-actions[bot]`
+      # to CODEOWNERS or drop the codeowner requirement on `main`.
+      - name: Auto-approve Release PR
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          echo "Approving release PR #${PR_NUMBER} as github-actions[bot]"
+          gh pr review "$PR_NUMBER" \
+            --approve \
+            --body "Auto-approved by release-please workflow." \
+            --repo "${{ github.repository }}"
+
+      - name: Enable auto-merge on Release PR
+        # `steps.release.outputs.pr` is the JSON of the release PR that
+        # was just opened or updated (empty string when there's nothing
+        # to release this run).
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          set -euo pipefail
+          PR_NUMBER=$(echo "$PR_JSON" | jq -r '.number')
+          echo "Enabling auto-merge on release PR #${PR_NUMBER}"
+          gh pr merge "$PR_NUMBER" \
+            --auto \
+            --squash \
+            --repo "${{ github.repository }}"
