@@ -53,3 +53,6 @@ next-env.d.ts
 # local dev data (pointed at by .env.local)
 /.local-dev
 
+# local scratch notes
+/todo.md
+
