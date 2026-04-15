@@ -168,29 +168,24 @@ For local development, copy [`.env.example`](./.env.example) to `.env.local` and
 
 ## Releases
 
-Versioning is driven by [release-please](https://github.com/googleapis/release-please) reading [Conventional Commits](https://www.conventionalcommits.org/) on `main`:
+Versioning is driven by [release-please](https://github.com/googleapis/release-please) reading [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Docker images are only built and published **when a release lands** — never on intermediate commits.
 
-- `.github/workflows/release-please.yml` keeps a rolling **Release PR** that bumps `package.json` + `package-lock.json` and regenerates `CHANGELOG.md`. Auto-merge is enabled, so once CI passes the PR squash-lands on its own.
-- No GitHub **Release** is created (`skip-github-release: true`). There are no downloadable release artifacts or release notes pages — the version bump commit + `CHANGELOG.md` are the whole record.
+How it works:
 
-Every push to `main` (including the release commit) triggers `.github/workflows/release.yml`, which builds a multi-arch image for `linux/amd64` + `linux/arm64` and pushes it to GHCR. The tag scheme depends on whether the push was the release commit (detected by diffing `package.json` against its parent):
+1. `.github/workflows/release-please.yml` keeps a rolling **Release PR** that bumps `package.json` + `package-lock.json` and regenerates `CHANGELOG.md`. The workflow auto-approves and enables auto-merge on the PR, so once CI passes it squash-lands on its own.
+2. No GitHub **Release** is created (`skip-github-release: true`). The workflow does push a lightweight git tag `vX.Y.Z` at the squash commit — release-please requires a completion marker, and the tag is cheaper than a release object. Nothing appears on the Releases page.
+3. The release squash commit also bumps `.release-please-manifest.json`, which is the only path that triggers `.github/workflows/release.yml`. That workflow builds a multi-arch image for `linux/amd64` + `linux/arm64` and pushes it to GHCR with these tags:
 
-Intermediate pushes:
+   - `ghcr.io/<owner>/traefik-workbench:latest`
+   - `ghcr.io/<owner>/traefik-workbench:v<X.Y.Z>`
+   - `ghcr.io/<owner>/traefik-workbench:<X.Y.Z>`
+   - `ghcr.io/<owner>/traefik-workbench:sha-<short>` — traceability alias from tag to commit
 
-- `ghcr.io/<owner>/traefik-workbench:main` — rolling tip of `main`
-- `ghcr.io/<owner>/traefik-workbench:sha-<short>` — immutable pin for an exact commit
-
-Release pushes additionally get:
-
-- `ghcr.io/<owner>/traefik-workbench:latest`
-- `ghcr.io/<owner>/traefik-workbench:v<X.Y.Z>`
-- `ghcr.io/<owner>/traefik-workbench:<X.Y.Z>`
-
-The OCI `org.opencontainers.image.version` label and the version pill in the app header both read from the same string: the `package.json` version on release builds, `<version>-main.<short-sha>` on intermediate ones.
+   The OCI `org.opencontainers.image.version` label and the version pill in the app header both carry the same `X.Y.Z` string. Non-release commits (anything else that lands on `main`) never trigger a Docker build.
 
 A fine-grained PAT named `RELEASE_PLEASE_TOKEN` (with `contents: write` + `pull-requests: write`) is required for the Release PR to trigger CI and auto-merge — the default `GITHUB_TOKEN` can't cascade into further workflow runs.
 
-If a runner hangs or the registry hiccups, re-run `release.yml` from the Actions tab — it also exposes a `workflow_dispatch` trigger for rebuilding the current `main`.
+If a runner hangs or the registry hiccups, `release.yml` also exposes a `workflow_dispatch` trigger for manually republishing the current `HEAD`.
 
 ## License
 
