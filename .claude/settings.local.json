@@ -4,7 +4,9 @@
       "Bash(*)",
       "Edit(*)",
       "Write(*)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": [
       "Bash(git push*)",
