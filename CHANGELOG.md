@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1](https://github.com/shawnphoffman/traefik-workbench/compare/v0.3.0...v0.3.1) (2026-04-15)
+
+
+### Bug Fixes
+
+* **ci:** only build Docker images on release merges ([acfb111](https://github.com/shawnphoffman/traefik-workbench/commit/acfb1112d8e583092fa93b0b75c73b6238ff8744))
+* **ci:** tag merged release PRs so release-please moves on ([7bd166b](https://github.com/shawnphoffman/traefik-workbench/commit/7bd166ba46a1da93a6f0af7223cb3397f311029f))
+
 ## [0.3.0](https://github.com/shawnphoffman/traefik-workbench/compare/v0.2.2...v0.3.0) (2026-04-15)
 
 
