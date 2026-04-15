@@ -198,10 +198,33 @@ jobs:
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
+          set -euo pipefail
+
+          # Build argv arrays so values that contain spaces (notably
+          # `org.opencontainers.image.description`, which ends up in
+          # every annotation) survive unmangled. Using `$(jq ...)`
+          # unquoted would let the shell word-split on every space in
+          # the description and `buildx imagetools create` would then
+          # try to treat "self-hosted," as a source reference.
+          TAGS=()
+          while IFS= read -r t; do
+            TAGS+=(-t "$t")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+
+          ANNOTATIONS=()
+          while IFS= read -r a; do
+            ANNOTATIONS+=(--annotation "$a")
+          done < <(jq -r '.annotations[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+
+          SOURCES=()
+          for digest in *; do
+            SOURCES+=("${{ env.IMAGE }}@sha256:${digest}")
+          done
+
           docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(jq -cr '.annotations | map("--annotation " + (. | @sh)) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.IMAGE }}@sha256:%s ' *)
+            "${TAGS[@]}" \
+            "${ANNOTATIONS[@]}" \
+            "${SOURCES[@]}"
 
       - name: Inspect image
         run: docker buildx imagetools inspect ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}

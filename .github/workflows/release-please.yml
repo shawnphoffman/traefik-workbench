@@ -47,8 +47,16 @@ jobs:
       # Approve the PR as `github-actions[bot]` (via GITHUB_TOKEN).
       # This is a different identity from the PAT user that *opened*
       # the PR (RELEASE_PLEASE_TOKEN), so GitHub's "can't approve your
-      # own PR" rule doesn't apply. Satisfies branch protections that
-      # require approving reviews.
+      # own PR" rule doesn't apply.
+      #
+      # Requires the repo setting:
+      #   Settings → Actions → General → Workflow permissions →
+      #   "Allow GitHub Actions to create and approve pull requests"
+      # Without it, the GraphQL call returns "GitHub Actions is not
+      # permitted to approve pull requests." We mark the step as
+      # non-fatal so auto-merge still runs either way — if no branch
+      # protection requires an approval, the PR can merge with only
+      # CI passing.
       #
       # Caveat: if branch protection demands CODEOWNERS approval and
       # the bot isn't a code owner, this approval won't count and the
@@ -56,6 +64,7 @@ jobs:
       # to CODEOWNERS or drop the codeowner requirement on `main`.
       - name: Auto-approve Release PR
         if: ${{ steps.release.outputs.pr }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_JSON: ${{ steps.release.outputs.pr }}
