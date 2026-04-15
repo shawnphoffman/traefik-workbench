@@ -173,7 +173,7 @@ Versioning is driven by [release-please](https://github.com/googleapis/release-p
 How it works:
 
 1. `.github/workflows/release-please.yml` keeps a rolling **Release PR** that bumps `package.json` + `package-lock.json` and regenerates `CHANGELOG.md`. The workflow auto-approves and enables auto-merge on the PR, so once CI passes it squash-lands on its own.
-2. No GitHub **Release** is created (`skip-github-release: true`). The workflow does push a lightweight git tag `vX.Y.Z` at the squash commit — release-please requires a completion marker, and the tag is cheaper than a release object. Nothing appears on the Releases page.
+2. When the Release PR merges, release-please tags the squash commit `vX.Y.Z` and publishes a matching GitHub Release whose body is the CHANGELOG entry for that version. No build artifacts are attached — the only downloads on the release page are the auto-generated source zip/tarball that GitHub produces from the tag itself.
 3. The release squash commit also bumps `.release-please-manifest.json`, which is the only path that triggers `.github/workflows/release.yml`. That workflow builds a multi-arch image for `linux/amd64` + `linux/arm64` and pushes it to GHCR with these tags:
 
    - `ghcr.io/<owner>/traefik-workbench:latest`

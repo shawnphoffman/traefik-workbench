@@ -6,19 +6,11 @@ name: Release Please
 # GitHub's native auto-merge is enabled on that PR so it lands on its
 # own once CI passes.
 #
-# Deliberately NOT creating a GitHub Release (skip-github-release is
-# set in release-please-config.json). We only want the version number
-# bump + CHANGELOG — no downloadable release artifacts, no release
-# notes page. The release-commit detection in release.yml reads
-# package.json diffs to decide when to apply the `latest` / `vX.Y.Z`
-# Docker tags.
-#
-# We DO still create a lightweight git tag per release: release-please
-# uses the tag as its "release complete" marker and refuses to open
-# any new release PRs while a previously-merged one is still labelled
-# `autorelease: pending`. Without the tagging step below the pipeline
-# deadlocks after the first release. Git tags are not GitHub Releases
-# and have no download UI of their own — they're just refs.
+# When the PR merges, release-please creates the `vX.Y.Z` tag and a
+# matching GitHub Release whose body is the CHANGELOG section for
+# that version. The Release carries no attached build artifacts — the
+# only downloads on the page are the auto-generated source zip/tarball
+# that GitHub produces from the tag itself.
 #
 # A fine-grained PAT (RELEASE_PLEASE_TOKEN) with `contents: write` and
 # `pull-requests: write` is required. Events from the default
@@ -43,69 +35,6 @@ jobs:
     name: Release Please
     runs-on: ubuntu-latest
     steps:
-      # Close the loop for any merged release PR that release-please
-      # left in `autorelease: pending` state. Runs BEFORE the action
-      # itself so a single push can both finalize the previous
-      # release AND open the next release PR — without this ordering,
-      # the action would still see the pending PR and abort, requiring
-      # a second push to recover.
-      #
-      # We create a lightweight git tag (a plain ref, not a GitHub
-      # Release) via the API so no local checkout is needed, then
-      # swap the PR's label so release-please moves on.
-      - name: Tag merged release PRs
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          PRS=$(gh pr list \
-            --repo "$REPO" \
-            --state merged \
-            --label "autorelease: pending" \
-            --json number,mergeCommit,body \
-            --limit 10)
-          COUNT=$(jq 'length' <<< "$PRS")
-          echo "Found $COUNT merged release PR(s) awaiting tagging"
-          [ "$COUNT" -eq 0 ] && exit 0
-
-          # `autorelease: tagged` may not exist yet on a fresh repo.
-          # `--force` is idempotent: creates or updates in place.
-          gh label create "autorelease: tagged" \
-            --repo "$REPO" \
-            --color ededed \
-            --description "Release tagged by workflow" \
-            --force >/dev/null
-
-          for i in $(seq 0 $((COUNT - 1))); do
-            NUM=$(jq -r ".[$i].number" <<< "$PRS")
-            SHA=$(jq -r ".[$i].mergeCommit.oid" <<< "$PRS")
-            BODY=$(jq -r ".[$i].body" <<< "$PRS")
-            # release-please's PR body starts with `## [X.Y.Z](...)`.
-            VERSION=$(grep -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+' <<< "$BODY" \
-              | head -n1 \
-              | sed 's/^## \[//')
-            if [ -z "${VERSION:-}" ]; then
-              echo "::warning::Could not parse version from PR #$NUM body; skipping"
-              continue
-            fi
-            TAG="v$VERSION"
-            echo "PR #$NUM → tag $TAG at $SHA"
-            if gh api "repos/$REPO/git/refs/tags/$TAG" --silent 2>/dev/null; then
-              echo "  tag $TAG already exists; skipping create"
-            else
-              gh api "repos/$REPO/git/refs" \
-                --method POST \
-                -f ref="refs/tags/$TAG" \
-                -f sha="$SHA" >/dev/null
-              echo "  created tag $TAG"
-            fi
-            gh pr edit "$NUM" \
-              --repo "$REPO" \
-              --remove-label "autorelease: pending" \
-              --add-label "autorelease: tagged"
-          done
-
       - name: Run release-please
         id: release
         uses: googleapis/release-please-action@v4
