@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/shawnphoffman/traefik-workbench/compare/v0.4.0...v0.5.0) (2026-04-17)
+
+
+### Features
+
+* **editor:** pinned tabs, preview tabs, and Close all action ([0ce3265](https://github.com/shawnphoffman/traefik-workbench/commit/0ce326535b8f330d4d2500e59d1f6a8da6f9b655))
+
 ## [0.4.0](https://github.com/shawnphoffman/traefik-workbench/compare/v0.3.1...v0.4.0) (2026-04-15)
 
 
