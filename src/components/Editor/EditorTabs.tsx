@@ -3,10 +3,19 @@
 /**
  * Tab bar for the center pane. Shows one tab per open file with a
  * dirty indicator and close button. Clicking a tab activates it.
+ *
+ * Tab ordering: pinned tabs render first (in insertion order), then
+ * unpinned tabs (in insertion order). Pinning is an explicit user
+ * action — see `togglePin` on `WorkbenchContext`.
+ *
+ * The "preview" tab — a file the user opened but hasn't edited — is
+ * rendered with an italic name to match VS Code's convention. It gets
+ * silently replaced when the user opens another file from the tree;
+ * editing the buffer makes it sticky.
  */
 
-import type { ReactNode } from 'react';
-import { Loader2, X } from 'lucide-react';
+import { useMemo, type ReactNode } from 'react';
+import { Loader2, Pin, PinOff, X } from 'lucide-react';
 
 import {
   isDirty,
@@ -18,8 +27,25 @@ import {
 import { Tooltip } from '@/components/ui/Tooltip';
 
 export function EditorTabs() {
-  const { openFiles, activePath, savingPaths, setActive, requestCloseFile } =
-    useWorkbench();
+  const {
+    openFiles,
+    activePath,
+    previewPath,
+    savingPaths,
+    setActive,
+    requestCloseFile,
+    togglePin,
+  } = useWorkbench();
+
+  // Stable sort: pinned tabs first, otherwise preserve insertion order.
+  const orderedFiles = useMemo(() => {
+    if (openFiles.every((f) => !f.pinned) || openFiles.every((f) => f.pinned)) {
+      return openFiles;
+    }
+    const pinned = openFiles.filter((f) => f.pinned);
+    const rest = openFiles.filter((f) => !f.pinned);
+    return [...pinned, ...rest];
+  }, [openFiles]);
 
   if (openFiles.length === 0) {
     return (
@@ -35,14 +61,16 @@ export function EditorTabs() {
       aria-label="Open files"
       className="flex h-9 items-stretch overflow-x-auto border-b border-neutral-800 bg-neutral-950"
     >
-      {openFiles.map((file) => (
+      {orderedFiles.map((file) => (
         <Tab
           key={file.path}
           file={file}
           active={file.path === activePath}
           saving={savingPaths.has(file.path)}
+          isPreview={file.path === previewPath}
           onSelect={() => setActive(file.path)}
           onClose={() => requestCloseFile(file.path)}
+          onTogglePin={() => togglePin(file.path)}
         />
       ))}
     </div>
@@ -53,14 +81,18 @@ function Tab({
   file,
   active,
   saving,
+  isPreview,
   onSelect,
   onClose,
+  onTogglePin,
 }: {
   file: OpenFile;
   active: boolean;
   saving: boolean;
+  isPreview: boolean;
   onSelect: () => void;
   onClose: () => void;
+  onTogglePin: () => void;
 }) {
   const dirty = isDirty(file);
   const isTemplate = isTemplatePath(file.path);
@@ -110,12 +142,58 @@ function Tab({
     );
   }
 
+  // Pin affordance:
+  // - Pinned tabs always show a filled pin icon (clicking unpins).
+  // - Unpinned tabs reveal an outline pin on hover.
+  // The pin button sits to the left of the indicator/close so the
+  // close button stays anchored to the right edge of every tab.
+  const pinButton = file.pinned ? (
+    <Tooltip content="Unpin tab">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onTogglePin();
+        }}
+        className="flex h-4 w-4 items-center justify-center rounded text-sky-300 hover:bg-neutral-800 hover:text-sky-100"
+        aria-label={`Unpin ${name}`}
+        aria-pressed="true"
+      >
+        <Pin className="h-3 w-3 fill-current" aria-hidden="true" />
+      </button>
+    </Tooltip>
+  ) : (
+    <Tooltip content="Pin tab">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onTogglePin();
+        }}
+        className="flex h-4 w-4 items-center justify-center rounded text-neutral-500 opacity-0 hover:bg-neutral-800 hover:text-neutral-100 group-hover:opacity-100"
+        aria-label={`Pin ${name}`}
+        aria-pressed="false"
+      >
+        <PinOff className="h-3 w-3" aria-hidden="true" />
+      </button>
+    </Tooltip>
+  );
+
   return (
     <div
       role="tab"
       aria-selected={active}
       aria-busy={saving || undefined}
       onClick={onSelect}
+      onDoubleClick={(event) => {
+        // Double-clicking a preview tab promotes it to a sticky (pinned-style)
+        // tab without actually pinning — VS Code's convention. We implement it
+        // here as a no-op pin toggle when already pinned, otherwise as an
+        // explicit pin so users have a way to keep a previewed file from
+        // disappearing when they open another file.
+        event.stopPropagation();
+        if (!file.pinned) onTogglePin();
+      }}
       title={tooltipPath}
       className={`group flex shrink-0 cursor-pointer items-center gap-2 border-r border-neutral-800 px-3 text-sm ${
         active
@@ -131,7 +209,12 @@ function Tab({
           tpl
         </span>
       )}
-      <span className="max-w-[16rem] truncate">{name}</span>
+      <span
+        className={`max-w-[16rem] truncate ${isPreview ? 'italic' : ''}`}
+      >
+        {name}
+      </span>
+      <span className="flex w-4 items-center justify-center">{pinButton}</span>
       <span className="flex w-4 items-center justify-center">{indicator}</span>
       {(dirty || saving) && (
         <Tooltip
