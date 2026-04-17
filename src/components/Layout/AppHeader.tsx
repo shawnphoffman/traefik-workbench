@@ -25,7 +25,7 @@
 import { useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Loader2, Save, Settings as SettingsIcon } from 'lucide-react';
+import { Loader2, Save, Settings as SettingsIcon, XSquare } from 'lucide-react';
 
 import { TraefikIcon } from '@/components/icons/TraefikIcon';
 import { useToast } from '@/components/ui/Toast';
@@ -42,7 +42,13 @@ import { useTraefikStatus } from '@/hooks/useTraefikStatus';
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? '';
 
 export function AppHeader() {
-  const { openFiles, activePath, savingPaths, savePath } = useWorkbench();
+  const {
+    openFiles,
+    activePath,
+    savingPaths,
+    savePath,
+    closeAllClean,
+  } = useWorkbench();
   const { toast } = useToast();
   const { configured: traefikConfigured } = useTraefikStatus();
 
@@ -56,6 +62,16 @@ export function AppHeader() {
     activePath != null && savingPaths.has(activePath);
 
   const canSaveActive = activeDirty && !activeSaving;
+
+  // "Close all" sweeps every clean, unpinned tab. The button is disabled
+  // when nothing is open at all (per spec). When everything open is
+  // either dirty or pinned the click is a harmless no-op — we still
+  // leave the button enabled so the user can see at a glance that
+  // there's no clean tab to close (matches the dirty-count badge).
+  const anyOpen = openFiles.length > 0;
+  const closeableCount = openFiles.filter(
+    (f) => !f.pinned && !isDirty(f) && !savingPaths.has(f.path),
+  ).length;
 
   const handleSaveActive = useCallback(async () => {
     if (activePath == null) return;
@@ -141,6 +157,27 @@ export function AppHeader() {
               <Save className="h-3.5 w-3.5" aria-hidden="true" />
             )}
             {activeSaving ? 'Saving…' : 'Save'}
+          </button>
+        </Tooltip>
+        <Tooltip
+          content={
+            !anyOpen
+              ? 'No files open'
+              : closeableCount === 0
+                ? 'Nothing to close (every open tab is pinned or has unsaved changes)'
+                : `Close ${closeableCount} clean tab${closeableCount === 1 ? '' : 's'}`
+          }
+          placement="bottom"
+        >
+          <button
+            type="button"
+            onClick={() => closeAllClean()}
+            disabled={closeableCount === 0}
+            aria-label="Close all clean files"
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-neutral-700 bg-neutral-900 px-3 text-xs font-medium text-neutral-200 transition-colors hover:border-sky-700 hover:bg-sky-950 hover:text-sky-100 disabled:cursor-not-allowed disabled:border-neutral-800 disabled:bg-neutral-950 disabled:text-neutral-600 disabled:hover:border-neutral-800 disabled:hover:bg-neutral-950 disabled:hover:text-neutral-600"
+          >
+            <XSquare className="h-3.5 w-3.5" aria-hidden="true" />
+            Close all
           </button>
         </Tooltip>
         {traefikConfigured && (

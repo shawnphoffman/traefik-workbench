@@ -91,6 +91,12 @@ export interface OpenFile {
   loading: boolean;
   /** Error string from the last read attempt, if any. */
   error: string | null;
+  /**
+   * User has pinned this tab. Pinned tabs render to the left of
+   * unpinned tabs and are excluded from "Close all" / preview-replacement
+   * behavior. Defaults to false for newly opened files.
+   */
+  pinned: boolean;
 }
 
 interface WorkbenchState {
@@ -107,6 +113,14 @@ interface WorkbenchState {
   // Files
   openFiles: OpenFile[];
   activePath: string | null;
+  /**
+   * Path of the current "preview" tab — a file opened from the tree
+   * that the user hasn't edited yet. Opening another file replaces it
+   * (so we don't accumulate tabs the user only glanced at). Set to
+   * null once the user edits the buffer or pins the tab, after which
+   * the tab is "sticky".
+   */
+  previewPath: string | null;
 
   // Layout
   leftCollapsed: boolean;
@@ -142,6 +156,18 @@ interface WorkbenchState {
   reloadTemplates: () => Promise<void>;
   openFile: (path: string) => Promise<void>;
   closeFile: (path: string) => void;
+  /**
+   * Close every open file that has no pending changes and is not
+   * pinned. Files with unsaved edits or active saves are left alone
+   * (no confirm dialog cascade — closing dirty buffers is an explicit,
+   * per-file decision). No-op if nothing is closeable.
+   */
+  closeAllClean: () => void;
+  /**
+   * Toggle the pinned state of an open tab. Pinning a tab also
+   * promotes it out of the "preview" slot so it stays sticky.
+   */
+  togglePin: (path: string) => void;
   /**
    * Ask to close a file. If the file is dirty, sets `pendingClose` so
    * the shell can pop a confirmation dialog. If it's clean, closes
@@ -270,8 +296,14 @@ function readPersistedLayout(): PersistedLayout {
  * since the WorkbenchProvider is unmounted on route change.
  */
 interface PersistedSession {
-  openFiles: Array<{ path: string; content: string; savedContent: string }>;
+  openFiles: Array<{
+    path: string;
+    content: string;
+    savedContent: string;
+    pinned?: boolean;
+  }>;
   activePath: string | null;
+  previewPath?: string | null;
 }
 
 function readPersistedSession(): PersistedSession | null {
@@ -291,17 +323,33 @@ function readPersistedSession(): PersistedSession | null {
     // Defensive shape validation: drop any entry that doesn't look like
     // an OpenFile snapshot. A corrupt entry would otherwise wedge the
     // editor by giving Monaco an undefined model value.
-    const openFiles = candidate.openFiles.filter(
-      (f): f is { path: string; content: string; savedContent: string } =>
-        !!f &&
-        typeof f === 'object' &&
-        typeof (f as { path?: unknown }).path === 'string' &&
-        typeof (f as { content?: unknown }).content === 'string' &&
-        typeof (f as { savedContent?: unknown }).savedContent === 'string',
-    );
+    const openFiles = candidate.openFiles
+      .filter(
+        (
+          f,
+        ): f is {
+          path: string;
+          content: string;
+          savedContent: string;
+          pinned?: boolean;
+        } =>
+          !!f &&
+          typeof f === 'object' &&
+          typeof (f as { path?: unknown }).path === 'string' &&
+          typeof (f as { content?: unknown }).content === 'string' &&
+          typeof (f as { savedContent?: unknown }).savedContent === 'string',
+      )
+      .map((f) => ({
+        path: f.path,
+        content: f.content,
+        savedContent: f.savedContent,
+        pinned: typeof f.pinned === 'boolean' ? f.pinned : false,
+      }));
     const activePath =
       typeof candidate.activePath === 'string' ? candidate.activePath : null;
-    return { openFiles, activePath };
+    const previewPath =
+      typeof candidate.previewPath === 'string' ? candidate.previewPath : null;
+    return { openFiles, activePath, previewPath };
   } catch {
     return null;
   }
@@ -385,6 +433,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       savedContent: f.savedContent,
       loading: false,
       error: null,
+      pinned: f.pinned ?? false,
     }));
   });
   const [activePath, setActivePath] = useState<string | null>(() => {
@@ -399,6 +448,21 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       return persisted.activePath;
     }
     return persisted.openFiles[0]?.path ?? null;
+  });
+  const [previewPath, setPreviewPath] = useState<string | null>(() => {
+    const persisted = readPersistedSession();
+    if (!persisted) return null;
+    // Only honor a persisted previewPath if the file is still open and
+    // is still untouched (savedContent === content). Otherwise it's
+    // stale.
+    if (persisted.previewPath == null) return null;
+    const entry = persisted.openFiles.find(
+      (f) => f.path === persisted.previewPath,
+    );
+    if (!entry) return null;
+    if (entry.content !== entry.savedContent) return null;
+    if (entry.pinned) return null;
+    return persisted.previewPath;
   });
   const [pendingClosePath, setPendingClosePath] = useState<string | null>(
     null,
@@ -507,8 +571,10 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
             path: f.path,
             content: f.content,
             savedContent: f.savedContent,
+            pinned: f.pinned,
           })),
         activePath,
+        previewPath,
       };
       try {
         window.localStorage.setItem(
@@ -522,7 +588,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       }
     }, SESSION_SAVE_DEBOUNCE_MS);
     return () => clearTimeout(handle);
-  }, [openFiles, activePath]);
+  }, [openFiles, activePath, previewPath]);
 
   const toggleLeft = useCallback(() => setLeftCollapsed((v) => !v), []);
   const toggleRight = useCallback(() => setRightCollapsed((v) => !v), []);
@@ -618,25 +684,58 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
   // ---------- file operations ----------
 
   const openFile = useCallback(async (path: string) => {
-    // If already open, just activate it.
+    // Preview-tab behavior: if there's an existing preview tab and the
+    // user is opening a *different* file, drop the preview so we don't
+    // accumulate tabs the user only glanced at. We also need to know
+    // upfront whether we're going to make `path` the new preview slot,
+    // which only happens when it isn't already open.
     let alreadyOpen = false;
+    let previewToDrop: string | null = null;
     setOpenFiles((prev) => {
-      if (prev.some((f) => f.path === path)) {
+      const isOpen = prev.some((f) => f.path === path);
+      if (isOpen) {
         alreadyOpen = true;
         return prev;
       }
+      // Fresh open. If we currently have a preview tab that's still
+      // unedited, evict it. We re-check the dirty/pinned state from
+      // `prev` (not from `previewPath`'s closure) so we don't blow away
+      // a buffer the user just edited mid-flight.
+      let next = prev;
+      const previewEntry = previewPath
+        ? prev.find((f) => f.path === previewPath)
+        : null;
+      if (
+        previewEntry &&
+        !previewEntry.pinned &&
+        previewEntry.content === previewEntry.savedContent &&
+        // Don't evict a preview tab that has an in-flight save — that
+        // would leave the PUT racing against a closed tab. Vanishingly
+        // rare for an "untouched" file, but cheap to guard.
+        !savingPathsRef.current.has(previewEntry.path) &&
+        previewEntry.path !== path
+      ) {
+        previewToDrop = previewEntry.path;
+        next = prev.filter((f) => f.path !== previewEntry.path);
+      }
       return [
-        ...prev,
+        ...next,
         {
           path,
           content: '',
           savedContent: '',
           loading: true,
           error: null,
+          pinned: false,
         },
       ];
     });
+    // (`previewToDrop` is informational — the preview entry was already
+    // filtered out of the array above. The active tab unconditionally
+    // becomes `path` below.)
+    void previewToDrop;
     setActivePath(path);
+    if (!alreadyOpen) setPreviewPath(path);
     if (alreadyOpen) return;
 
     try {
@@ -666,7 +765,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         ),
       );
     }
-  }, []);
+  }, [previewPath]);
 
   const closeFile = useCallback(
     (path: string) => {
@@ -686,6 +785,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
+      setPreviewPath((prev) => (prev === path ? null : prev));
     },
     [activePath],
   );
@@ -746,6 +846,59 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     setOpenFiles((prev) =>
       prev.map((f) => (f.path === path ? { ...f, content } : f)),
     );
+    // Editing a preview tab makes it sticky — the user has demonstrated
+    // intent to keep it open. Clear preview only when the buffer
+    // actually diverges from disk; an undo back to savedContent leaves
+    // the preview slot occupied (matches VS Code).
+    setPreviewPath((prev) => {
+      if (prev !== path) return prev;
+      // We need the savedContent to compare. Read it from the latest
+      // openFiles via a setOpenFiles snapshot updater rather than
+      // closing over potentially-stale state.
+      let saved: string | undefined;
+      setOpenFiles((files) => {
+        saved = files.find((f) => f.path === path)?.savedContent;
+        return files;
+      });
+      if (saved !== undefined && content !== saved) return null;
+      return prev;
+    });
+  }, []);
+
+  const togglePin = useCallback((path: string) => {
+    setOpenFiles((prev) =>
+      prev.map((f) => (f.path === path ? { ...f, pinned: !f.pinned } : f)),
+    );
+    // Pinning sticks the tab — it can no longer be the preview slot.
+    setPreviewPath((prev) => (prev === path ? null : prev));
+  }, []);
+
+  const closeAllClean = useCallback(() => {
+    setOpenFiles((prev) => {
+      const survivors = prev.filter(
+        (f) =>
+          f.pinned ||
+          f.content !== f.savedContent ||
+          savingPathsRef.current.has(f.path),
+      );
+      if (survivors.length === prev.length) return prev;
+      // Reassign active if it was closed. Prefer keeping the current
+      // active tab if it survived; otherwise fall back to the first
+      // survivor (or null).
+      setActivePath((current) => {
+        if (current == null) return current;
+        if (survivors.some((f) => f.path === current)) return current;
+        return survivors.length > 0 ? survivors[0].path : null;
+      });
+      // The preview tab is by definition clean and unpinned, so it
+      // would have been swept. Clear our pointer to it.
+      setPreviewPath((current) =>
+        current != null && survivors.some((f) => f.path === current)
+          ? current
+          : null,
+      );
+      return survivors;
+    });
   }, []);
 
   const isSaving = useCallback(
@@ -865,6 +1018,11 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
+      setPreviewPath((prev) =>
+        prev != null && (prev === path || prev.startsWith(prefix))
+          ? null
+          : prev,
+      );
       await reloadTree();
     },
     [reloadTree, activePath],
@@ -910,6 +1068,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         }),
       );
       setActivePath((prev) => (prev == null ? prev : (remap(prev) ?? prev)));
+      setPreviewPath((prev) => (prev == null ? prev : (remap(prev) ?? prev)));
 
       await reloadTree();
     },
@@ -951,6 +1110,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         }
         return next;
       });
+      setPreviewPath((prev) => (prev === handle ? null : prev));
       await reloadTemplates();
     },
     [reloadTemplates, activePath],
@@ -982,6 +1142,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
         ),
       );
       setActivePath((prev) => (prev === sourceHandle ? destHandle : prev));
+      setPreviewPath((prev) => (prev === sourceHandle ? destHandle : prev));
 
       await reloadTemplates();
     },
@@ -1015,6 +1176,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       templatesError,
       openFiles,
       activePath,
+      previewPath,
       savingPaths,
       isSaving,
       leftCollapsed,
@@ -1034,6 +1196,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       reloadTemplates,
       openFile,
       closeFile,
+      closeAllClean,
+      togglePin,
       requestCloseFile,
       setActive,
       updateContent,
@@ -1063,6 +1227,7 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       templatesError,
       openFiles,
       activePath,
+      previewPath,
       savingPaths,
       isSaving,
       leftCollapsed,
@@ -1082,6 +1247,8 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       reloadTemplates,
       openFile,
       closeFile,
+      closeAllClean,
+      togglePin,
       requestCloseFile,
       setActive,
       updateContent,
