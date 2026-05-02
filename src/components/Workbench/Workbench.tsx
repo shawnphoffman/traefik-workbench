@@ -9,7 +9,7 @@
  * but its children can be a mix of client and server components.
  */
 
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { AppHeader } from '@/components/Layout/AppHeader';
 import { LeftPaneSplit } from '@/components/Layout/LeftPaneSplit';
@@ -25,7 +25,10 @@ import {
   consumePendingOpen,
   type PendingOpen,
 } from '@/lib/pending-open';
+import { useWorkbenchHotkeys } from '@/hooks/useWorkbenchHotkeys';
 
+import { CommandPalette, type PaletteMode } from './CommandPalette';
+import { KeyboardShortcutsDialog } from './KeyboardShortcutsDialog';
 import {
   LAYOUT_DEFAULTS,
   WorkbenchProvider,
@@ -66,6 +69,29 @@ function WorkbenchLayout() {
     openFile,
     scrollToLine,
   } = useWorkbench();
+
+  // Palette state lives at the shell level so the global hotkey hook
+  // and the palette component share a single source of truth. Mode is
+  // separate from `open` so re-opening defaults back to the action list
+  // instead of remembering whatever mode it was last closed in.
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteMode, setPaletteMode] = useState<PaletteMode>('actions');
+  const openPalette = useCallback((mode: PaletteMode) => {
+    setPaletteMode(mode);
+    setPaletteOpen(true);
+  }, []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const openShortcuts = useCallback(() => setShortcutsOpen(true), []);
+  const closeShortcuts = useCallback(() => setShortcutsOpen(false), []);
+
+  useWorkbenchHotkeys({
+    paletteOpen,
+    openPalette,
+    closePalette,
+    openShortcuts,
+  });
 
   // Show the templates pane only when the templates root yielded
   // something useful. An empty list (or a 5xx from the templates API)
@@ -117,7 +143,7 @@ function WorkbenchLayout() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <AppHeader />
+      <AppHeader onShowShortcuts={openShortcuts} />
       <div className="min-h-0 flex-1">
         <ThreePane
           leftCollapsed={leftCollapsed}
@@ -144,6 +170,16 @@ function WorkbenchLayout() {
           right={<YamlTreePanel />}
         />
       </div>
+      <CommandPalette
+        open={paletteOpen}
+        mode={paletteMode}
+        onClose={closePalette}
+        onModeChange={setPaletteMode}
+      />
+      <KeyboardShortcutsDialog
+        open={shortcutsOpen}
+        onClose={closeShortcuts}
+      />
       <ConfirmDialog
         open={pendingClosePath != null}
         title="Discard unsaved changes?"

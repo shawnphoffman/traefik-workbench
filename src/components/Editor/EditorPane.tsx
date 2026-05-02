@@ -10,15 +10,13 @@
  * Editor bridge:
  * - On mount, we register the editor instance with the Workbench
  *   context so the YAML tree panel can scroll to clicked nodes.
- * - We bind Cmd/Ctrl+S → saveActive() and Cmd/Ctrl+Shift+W →
- *   closeActive(). Cmd+W is reserved by the browser (it closes the
- *   tab and `preventDefault` is ignored on regular pages), so we use
- *   Cmd+Shift+W as the close shortcut. The Monaco binding only fires
- *   when the editor has focus, so we ALSO register a window-level
- *   listener for Cmd+Shift+W so the shortcut works anywhere in the
- *   page (file tree focus, status bar, etc.). There's intentionally
- *   no save-all shortcut — saving unrelated buffers in a single
- *   keystroke is an anti-pattern that hides per-file failures.
+ * - Monaco-scoped commands (only fire while the editor has focus):
+ *   Cmd/Ctrl+S → saveActive(), Cmd/Ctrl+Shift+W → closeActive(),
+ *   Cmd/Ctrl+Shift+F → AI format. The same save / close shortcuts
+ *   are also bound globally via `useWorkbenchHotkeys` so they work
+ *   from the file tree or palette too; both `savePath` and
+ *   `requestCloseFile` are idempotent so the redundant Monaco binding
+ *   is harmless.
  * - We use the `path` prop so Monaco maintains a separate model per
  *   open file — switching tabs preserves undo history per file.
  *
@@ -226,28 +224,6 @@ export function EditorPane() {
     validateActive,
     toast,
   ]);
-
-  // Window-level Cmd/Ctrl+Shift+W → close active. The Monaco command
-  // only fires when the editor has focus, so this catches the case
-  // where the user has clicked into the file tree (or anywhere else
-  // on the page) and still wants to close the current tab. We don't
-  // mirror Cmd+S here because Monaco's binding handles "editor is
-  // focused" — the only time you'd want to save without the editor
-  // focused is rare, and the AppHeader save button covers it.
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (!e.shiftKey) return;
-      // Use `code` so the shortcut survives non-US keyboard layouts
-      // where `key` may be 'W', 'w', or even a dead-key character.
-      if (e.code !== 'KeyW') return;
-      e.preventDefault();
-      closeActive();
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [closeActive]);
 
   const handleMount = useCallback<OnMount>(
     (ed, monaco) => {

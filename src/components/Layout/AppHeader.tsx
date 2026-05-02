@@ -25,7 +25,13 @@
 import { useCallback } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Loader2, Save, Settings as SettingsIcon, XSquare } from 'lucide-react';
+import {
+  Keyboard,
+  Loader2,
+  Save,
+  Settings as SettingsIcon,
+  XSquare,
+} from 'lucide-react';
 
 import { TraefikIcon } from '@/components/icons/TraefikIcon';
 import { useToast } from '@/components/ui/Toast';
@@ -41,7 +47,17 @@ import { useTraefikStatus } from '@/hooks/useTraefikStatus';
 // header silently omits the badge rather than showing "v".
 const APP_VERSION = process.env.NEXT_PUBLIC_APP_VERSION ?? '';
 
-export function AppHeader() {
+export interface AppHeaderProps {
+  /**
+   * Open the keyboard shortcuts cheatsheet. Optional so the header can
+   * still be rendered in contexts that don't wire up the dialog (e.g.
+   * the /settings page header reuse), in which case the keyboard
+   * button is hidden.
+   */
+  onShowShortcuts?: () => void;
+}
+
+export function AppHeader({ onShowShortcuts }: AppHeaderProps = {}) {
   const {
     openFiles,
     activePath,
@@ -180,6 +196,18 @@ export function AppHeader() {
             Close all
           </button>
         </Tooltip>
+        {onShowShortcuts && (
+          <Tooltip content="Keyboard shortcuts (?)" placement="bottom">
+            <button
+              type="button"
+              onClick={onShowShortcuts}
+              aria-label="Show keyboard shortcuts"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-neutral-700 bg-neutral-900 text-neutral-300 transition-colors hover:border-sky-700 hover:bg-sky-950 hover:text-sky-100"
+            >
+              <Keyboard className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </Tooltip>
+        )}
         {traefikConfigured && (
           <Tooltip content="Traefik status" placement="bottom">
             <Link
